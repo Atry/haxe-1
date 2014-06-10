@@ -23,9 +23,9 @@
 /**
 	The `Lambda` class is a collection of methods to support functional
 	programming. It is ideally used with 'using Lambda' and then acts as an
-	extension to Iterable types.
+	extension to Iterator or Iterable types.
 
-	On static platforms, working with the Iterable structure might be slower
+	On static platforms, working with the Iterator or Iterable structure might be slower
 	than performing the operations directly on known types, such as Array and
 	List.
 
@@ -35,11 +35,11 @@
 class Lambda {
 
 	/**
-		Creates an Array from Iterable `it`.
+		Creates an Array from Iterator or Iterable `it`.
 
 		If `it` is an Array, this function returns a copy of it.
 	**/
-	public static function array<A>( it : Iterable<A> ) : Array<A> {
+	public static function array<A>( it : IteratorOrIterable<A> ) : Array<A> {
 		var a = new Array<A>();
 		for(i in it)
 			a.push(i);
@@ -47,11 +47,11 @@ class Lambda {
 	}
 
 	/**
-		Creates a List form Iterable `it`.
+		Creates a List form Iterator or Iterable `it`.
 
 		If `it` is a List, this function returns a copy of it.
 	**/
-	public static function list<A>( it : Iterable<A> ) : List<A> {
+	public static function list<A>( it : IteratorOrIterable<A> ) : List<A> {
 		var l = new List<A>();
 		for(i in it)
 			l.add(i);
@@ -65,7 +65,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function map<A,B>( it : Iterable<A>, f : A -> B ) : List<B> {
+	public static function map<A,B>( it : IteratorOrIterable<A>, f : A -> B ) : List<B> {
 		var l = new List<B>();
 		for( x in it )
 			l.add(f(x));
@@ -79,7 +79,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function mapi<A,B>( it : Iterable<A>, f : Int -> A -> B ) : List<B> {
+	public static function mapi<A,B>( it : IteratorOrIterable<A>, f : Int -> A -> B ) : List<B> {
 		var l = new List<B>();
 		var i = 0;
 		for( x in it )
@@ -95,7 +95,7 @@ class Lambda {
 
 		If no such element is found, the result is false.
 	**/
-	public static function has<A>( it : Iterable<A>, elt : A ) : Bool {
+	public static function has<A>( it : IteratorOrIterable<A>, elt : A ) : Bool {
 		for( x in it )
 			if( x == elt )
 				return true;
@@ -112,7 +112,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function exists<A>( it : Iterable<A>, f : A -> Bool ) {
+	public static function exists<A>( it : IteratorOrIterable<A>, f : A -> Bool ) {
 		for( x in it )
 			if( f(x) )
 				return true;
@@ -131,7 +131,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function foreach<A>( it : Iterable<A>, f : A -> Bool ) {
+	public static function foreach<A>( it : IteratorOrIterable<A>, f : A -> Bool ) {
 		for( x in it )
 			if( !f(x) )
 				return false;
@@ -143,7 +143,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function iter<A>( it : Iterable<A>, f : A -> Void ) {
+	public static function iter<A>( it : IteratorOrIterable<A>, f : A -> Void ) {
 		for( x in it )
 			f(x);
 	}
@@ -156,7 +156,7 @@ class Lambda {
 
 		Otherwise if `f` is null, the result is unspecified.
 	**/
-	public static function filter<A>( it : Iterable<A>, f : A -> Bool ) {
+	public static function filter<A>( it : IteratorOrIterable<A>, f : A -> Bool ) {
 		var l = new List<A>();
 		for( x in it )
 			if( f(x) )
@@ -165,7 +165,7 @@ class Lambda {
 	}
 
 	/**
-		Functional fold on Iterable `it`, using function `f` with start argument
+		Functional fold on IteratorOrIterable `it`, using function `f` with start argument
 		`first`.
 
 		If `it` has no elements, the result is `first`.
@@ -176,7 +176,7 @@ class Lambda {
 
 		If `it` or `f` are null, the result is unspecified.
 	**/
-	public static function fold<A,B>( it : Iterable<A>, f : A -> B -> B, first : B ) : B {
+	public static function fold<A,B>( it : IteratorOrIterable<A>, f : A -> B -> B, first : B ) : B {
 		for( x in it )
 			first = f(x,first);
 		return first;
@@ -188,7 +188,7 @@ class Lambda {
 
 		This function traverses all elements.
 	**/
-	public static function count<A>( it : Iterable<A>, ?pred : A -> Bool ) {
+	public static function count<A>( it : IteratorOrIterable<A>, ?pred : A -> Bool ) {
 		var n = 0;
 		if( pred == null )
 			for( _ in it )
@@ -201,20 +201,20 @@ class Lambda {
 	}
 
 	/**
-		Tells if Iterable `it` does not contain any element.
+		Tells if Iterator or Iterable `it` does not contain any element.
 	**/
-	public static function empty<T>( it : Iterable<T> ) : Bool {
+	public static function empty<T>( it : IteratorOrIterable<T> ) : Bool {
 		return !it.iterator().hasNext();
 	}
 
 	/**
-		Returns the index of the first element `v` within Iterable `it`.
+		Returns the index of the first element `v` within IteratorOrIterable `it`.
 
 		This function uses operator `==` to check for equality.
 
 		If `v` does not exist in `it`, the result is -1.
 	**/
-	public static function indexOf<T>( it : Iterable<T>, v : T ) : Int {
+	public static function indexOf<T>( it : IteratorOrIterable<T>, v : T ) : Int {
 		var i = 0;
 		for( v2 in it ) {
 			if( v == v2 )
@@ -234,7 +234,7 @@ class Lambda {
 
 		If `f` is null, the result is unspecified.
 	**/
-	public static function find<T>( it : Iterable<T>, f : T -> Bool ) : Null<T> {
+	public static function find<T>( it : IteratorOrIterable<T>, f : T -> Bool ) : Null<T> {
 		for( v in it ) {
 			if(f(v)) return v;
 		}
@@ -242,18 +242,43 @@ class Lambda {
 	}
 
 	/**
-		Returns a new List containing all elements of Iterable `a` followed by
-		all elements of Iterable `b`.
+		Returns a new List containing all elements of Iterator or Iterable `a` followed by
+		all elements of Iterator or Iterable `b`.
 
 		If `a` or `b` are null, the result is unspecified.
 	**/
-	public static function concat<T>( a : Iterable<T>, b : Iterable<T> ) : List<T> {
+	public static function concat<T>( a : IteratorOrIterable<T>, b : IteratorOrIterable<T> ) : List<T> {
 		var l = new List();
 		for( x in a )
 			l.add(x);
 		for( x in b )
 			l.add(x);
 		return l;
+	}
+
+}
+
+private abstract IteratorOrIterable<Element>(Iterator<Element>)
+{
+
+	public inline function iterator():Iterator<Element>
+	{
+		return this;
+	}
+
+	public inline function new(underlying:Iterator<Element>)
+	{
+		this = underlying;
+	}
+
+	@:from static inline function fromIterator<Element>(iterator:Iterator<Element>):IteratorOrIterable<Element>
+	{
+		return new IteratorOrIterable(iterator);
+	}
+
+	@:from static inline function fromIterable<Element>(iterable:Iterable<Element>):IteratorOrIterable<Element>
+	{
+		return new IteratorOrIterable(iterable.iterator());
 	}
 
 }
