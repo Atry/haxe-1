@@ -4138,6 +4138,9 @@ let create_constructor_dependencies common_ctx =
       ) common_ctx.types;
    result;;
 
+(*
+
+  Exports can now be done with macros and a class list
 
 let rec s_type t =
    let result =
@@ -4176,9 +4179,6 @@ and s_type_params = function
    | l -> "< " ^ String.concat ", " (List.map s_type  l) ^ " >"
 
 ;;
-
-
-
 
 
 let gen_extern_class common_ctx class_def file_info =
@@ -4294,6 +4294,7 @@ let gen_extern_enum common_ctx enum_def file_info =
    output "}\n";
    file#close
 ;;
+*)
 
 let is_this expression =
    match (remove_parens expression).eexpr with
@@ -4486,11 +4487,12 @@ class script_writer common_ctx ctx filename =
       this#writeBool v.v_capture;
       this#writeType v.v_type;
    method writeList prefix len = this#write (prefix ^" "  ^ (string_of_int (len)) ^ "\n");
-   method checkCast toType expr forceCast =
+   method checkCast toType expr forceCast fromGenExpression=
    let write_cast text =
-      this#begin_expr;
-      this#write ((string_of_int (Lexer.get_error_line expr.epos) ) ^ "\t" ^ (this#fileText expr.epos.pfile) ^ indent);
+      if (not fromGenExpression) then
+         this#write ( (this#fileText expr.epos.pfile) ^ "\t" ^ (string_of_int (Lexer.get_error_line expr.epos) ) ^ indent);
       this#write (text ^"\n" );
+      this#begin_expr;
       this#gen_expression expr;
       this#end_expr;
       true;
@@ -4571,7 +4573,7 @@ class script_writer common_ctx ctx filename =
    | TBinop (op,e1,e2) when op=OpAssign ->
       this#write ("SET \n");
       this#gen_expression e1;
-      this#checkCast e1.etype e2 false;
+      this#checkCast e1.etype e2 false false;
    | TBinop (OpEq ,e1, { eexpr = TConst TNull } ) -> this#write "ISNULL\n";
       this#gen_expression e1;
    | TBinop (OpNotEq ,e1, { eexpr = TConst TNull }) -> this#write "NOTNULL\n";
@@ -4632,7 +4634,7 @@ class script_writer common_ctx ctx filename =
       let matched_args = match func.etype with
          | TFun (args,_) ->
             ( try (
-               List.iter2 (fun (_,_,protoT) arg -> this#checkCast protoT arg false )  args arg_list;
+               List.iter2 (fun (_,_,protoT) arg -> this#checkCast protoT arg false false)  args arg_list;
                true; )
             with Invalid_argument _ -> (*print_endline "Bad count?";*) false )
          | _ -> false
@@ -4685,7 +4687,7 @@ class script_writer common_ctx ctx filename =
                      this#writeVar tvar;
                      this#write (" " ^ (this#typeText init.etype));
                      this#write "\n";
-                     this#checkCast tvar.v_type init false);
+                     this#checkCast tvar.v_type init false false);
    | TNew (clazz,params,arg_list) ->
       this#write ("NEW " ^ (this#typeText (TInst(clazz,params))) ^ (string_of_int (List.length arg_list)) ^ "\n");
       List.iter this#gen_expression arg_list;
@@ -4745,7 +4747,7 @@ class script_writer common_ctx ctx filename =
             this#gen_expression catch_expr;
          ) catches;
    | TCast (cast,None) -> error "Unexpected cast" expression.epos
-   | TCast (cast,Some _) -> this#checkCast expression.etype cast true
+   | TCast (cast,Some _) -> this#checkCast expression.etype cast true true
    | TParenthesis _ -> error "Unexpected parens" expression.epos
    | TMeta(_,_) -> error "Unexpected meta" expression.epos
    | TPatMatch _ ->  error "Unexpected pattern match" expression.epos
@@ -4916,18 +4918,12 @@ let generate_source common_ctx =
    let main_deps = ref [] in
    let build_xml = ref "" in
    let scriptable = (Common.defined common_ctx Define.Scriptable) in
-   let gen_externs = scriptable || (Common.defined common_ctx Define.DllExport) in
-   if (gen_externs) then begin
-   make_base_directory (common_ctx.file ^ "/extern");
-   end;
 
    List.iter (fun object_def ->
       (match object_def with
-      | TClassDecl class_def when is_extern_class class_def ->
-         (*if (gen_externs) then gen_extern_class common_ctx class_def file_info;*)();
+      | TClassDecl class_def when is_extern_class class_def -> ()
       | TClassDecl class_def ->
          let name =  class_text class_def.cl_path in
-         if (gen_externs) then gen_extern_class common_ctx class_def file_info;
          let is_internal = is_internal_class class_def.cl_path in
          let is_generic_def = match class_def.cl_kind with KGeneric -> true | _ -> false in
          if (is_internal || (is_macro class_def.cl_meta) || is_generic_def) then
@@ -4947,7 +4943,6 @@ let generate_source common_ctx =
       | TEnumDecl enum_def when enum_def.e_extern -> ()
       | TEnumDecl enum_def ->
          let name =  class_text enum_def.e_path in
-         if (gen_externs) then gen_extern_enum common_ctx enum_def file_info;
          let is_internal = is_internal_class enum_def.e_path in
          if (is_internal) then
             (if (debug>1) then print_endline (" internal enum " ^ name ))
@@ -4979,6 +4974,16 @@ let generate_source common_ctx =
 
    write_resources common_ctx;
 
+   (* Output class list if requested *)
+   if (scriptable || (Common.defined common_ctx Define.DllExport) ) then begin
+      let filename = match Common.defined_value_safe common_ctx Define.DllExport with
+         | "" -> "exe.classes"
+         | x -> x
+      in
+      let exeClasses = open_out filename in
+      List.iter (fun x -> output_string exeClasses ((join_class_path (fst x) ".") ^ "\n") ) !exe_classes;
+      close_out exeClasses;
+   end;
 
    let output_name = match  common_ctx.main_class with
    | Some path -> (snd path)
