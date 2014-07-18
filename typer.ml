@@ -1324,6 +1324,10 @@ and type_field ?(resume=false) ctx e i p mode =
 				let t = apply_params c.cl_types params t in
 				if (mode = MGet || mode = MCall) && PMap.mem "resolve" c.cl_fields then begin
 					let f = PMap.find "resolve" c.cl_fields in
+					begin match f.cf_kind with
+						| Method MethMacro -> display_error ctx "The macro accessor is not allowed for field resolve" f.cf_pos
+						| _ -> ()
+					end;
 					let texpect = tfun [ctx.t.tstring] t in
 					let tfield = apply_params c.cl_types params (monomorphs f.cf_params f.cf_type) in
 					(try Type.unify tfield texpect
@@ -3153,7 +3157,10 @@ and type_expr ctx (e,p) (with_type:with_type) =
 				error "Constructor is not a function" p
 		in
 		let t = try
-			follow (Typeload.load_instance ctx t p true)
+			ctx.constructor_argument_stack <- el :: ctx.constructor_argument_stack;
+			let t = follow (Typeload.load_instance ctx t p true) in
+			ctx.constructor_argument_stack <- List.tl ctx.constructor_argument_stack;
+			t
 		with Codegen.Generic_Exception _ ->
 			(* Try to infer generic parameters from the argument list (issue #2044) *)
 			match Typeload.load_type_def ctx p t with
@@ -4031,8 +4038,6 @@ let make_macro_api ctx p =
 		Interp.on_generate = (fun f ->
 			Common.add_filter ctx.com (fun() ->
 				let t = macro_timer ctx "onGenerate" in
-				(* add standard types to current module so basic types can be resolved (issue #1904) *)
-				ctx.m.module_types <- ctx.m.module_types @ ctx.g.std.m_types;
 				f (List.map make_instance ctx.com.types);
 				t()
 			)
@@ -4189,6 +4194,11 @@ let make_macro_api ctx p =
 			match ctx.with_type_stack with
 				| (WithType t | WithTypeResume t) :: _ -> Some t
 				| _ -> None
+		);
+		Interp.get_constructor_arguments = (fun() ->
+			match ctx.constructor_argument_stack with
+				| [] -> None
+				| el :: _ -> Some el
 		);
 		Interp.get_local_method = (fun() ->
 			ctx.curfield.cf_name;
@@ -4408,7 +4418,13 @@ let type_macro ctx mode cpath f (el:Ast.expr list) p =
 	| MMacroType ->
 		let cttype = { tpackage = ["haxe";"macro"]; tname = "Type"; tparams = []; tsub = None } in
 		let ttype = Typeload.load_instance mctx cttype p false in
-		unify mctx mret ttype mpos
+		try
+			unify_raise mctx mret ttype mpos;
+			ctx.com.warning "Returning Type from @:genericBuild macros is deprecated, consider returning ComplexType instead" p;
+		with Error (Unify _,_) ->
+			let cttype = { tpackage = ["haxe";"macro"]; tname = "Expr"; tparams = []; tsub = Some ("ComplexType") } in
+			let ttype = Typeload.load_instance mctx cttype p false in
+			unify_raise mctx mret ttype mpos;
 	);
 	(*
 		if the function's last argument is of Array<Expr>, split the argument list and use [] for unify_call_params
@@ -4504,7 +4520,15 @@ let type_macro ctx mode cpath f (el:Ast.expr list) p =
 					) in
 					(EVars ["fields",Some (CTAnonymous fields),None],p)
 				| MMacroType ->
-					ctx.ret <- Interp.decode_type v;
+					let t = if v = Interp.VNull then
+						mk_mono()
+					else try
+						let ct = Interp.decode_ctype v in
+						Typeload.load_complex_type ctx p ct;
+					with Interp.Invalid_expr ->
+						Interp.decode_type v
+					in
+					ctx.ret <- t;
 					(EBlock [],p)
 				)
 			with Interp.Invalid_expr ->
@@ -4602,6 +4626,7 @@ let rec create com =
 		meta = [];
 		this_stack = [];
 		with_type_stack = [];
+		constructor_argument_stack = [];
 		pass = PBuildModule;
 		macro_depth = 0;
 		untyped = false;
@@ -4625,6 +4650,8 @@ let rec create com =
 	with
 		Error (Module_not_found ([],"StdTypes"),_) -> error "Standard library not found" null_pos
 	);
+	(* We always want core types to be available so we add them as default imports (issue #1904 and #3131). *)
+	ctx.m.module_types <- ctx.g.std.m_types;
 	List.iter (fun t ->
 		match t with
 		| TAbstractDecl a ->
