@@ -208,7 +208,7 @@ let make_module ctx mpath file tdecls loadp =
 let parse_file com file p =
 	let ch = (try open_in_bin file with _ -> error ("Could not open " ^ file) p) in
 	let t = Common.timer "parsing" in
-	Lexer.init file;
+	Lexer.init file true;
 	incr stats.s_files_parsed;
 	let data = (try Parser.parse com (Lexing.from_channel ch) with e -> close_in ch; t(); raise e) in
 	close_in ch;
@@ -1715,8 +1715,13 @@ let init_class ctx c p context_init herits fields =
 			let check_cast e =
 				(* insert cast to keep explicit field type (issue #1901) *)
 				if not (type_iseq e.etype cf.cf_type)
-				then mk (TCast(e,None)) cf.cf_type e.epos
-				else e
+				then begin match e.eexpr,follow cf.cf_type with
+					| TConst (TInt i),TAbstract({a_path=[],"Float"},_) ->
+						(* turn int constant to float constant if expected type is float *)
+						{e with eexpr = TConst (TFloat (Int32.to_string i))}
+					| _ ->
+						mk (TCast(e,None)) cf.cf_type e.epos
+				end else e
 			in
 			let r = exc_protect ctx (fun r ->
 				(* type constant init fields (issue #1956) *)

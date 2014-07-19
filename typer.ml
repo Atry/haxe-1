@@ -339,7 +339,7 @@ let parse_string ctx s p inlined =
 		Lexer.restore old;
 		Parser.display_error := old_de
 	in
-	Lexer.init p.pfile;
+	Lexer.init p.pfile (ExtString.String.ends_with p.pfile ".hx");
 	Parser.display_error := (fun e p -> raise (Parser.Error (e,p)));
 	if not inlined then Parser.resume_display := null_pos;
 	let _, decls = try
@@ -1550,8 +1550,20 @@ let type_bind ctx (e : texpr) params p =
 	let t_inner = TFun(inner_fun_args missing_args, ret) in
 	let call = make_call ctx (vexpr loc) ordered_args ret p in
 	let e_ret = match follow ret with
-		| TAbstract ({a_path = [],"Void"},_) -> call
-		| _ -> mk (TReturn (Some call)) t_dynamic p;
+		| TAbstract ({a_path = [],"Void"},_) ->
+			call
+		| TMono _ ->
+			delay ctx PFinal (fun () ->
+				match follow ret with
+				| TAbstract ({a_path = [],"Void"},_) ->
+					display_error ctx "Could not bind this function because its Void return type was inferred too late" p;
+					error "Consider an explicit type hint" p
+				| _ ->
+					()
+			);
+			mk (TReturn (Some call)) t_dynamic p;
+		| _ ->
+			mk (TReturn (Some call)) t_dynamic p;
 	in
 	let func = mk (TFunction {
 		tf_args = List.map (fun (v,o) -> v, if o then Some TNull else None) missing_args;
@@ -4219,19 +4231,28 @@ let make_macro_api ctx p =
 		);
 		Interp.define_type = (fun v ->
 			let m, tdef, pos = (try Interp.decode_type_def v with Interp.Invalid_expr -> Interp.exc (Interp.VString "Invalid type definition")) in
-			let prev = (try Some (Hashtbl.find ctx.g.modules m) with Not_found -> None) in
-			let mnew = Typeload.type_module ctx m ctx.m.curmod.m_extra.m_file [tdef,pos] pos in
-			add_dependency mnew ctx.m.curmod;
-			(* if we defined a type in an existing module, let's move the types here *)
-			(match prev with
-			| None ->
-				mnew.m_extra.m_kind <- MFake;
-			| Some mold ->
-				Hashtbl.replace ctx.g.modules mnew.m_path mold;
-				mold.m_types <- mold.m_types @ mnew.m_types;
-				mnew.m_extra.m_kind <- MSub;
-				add_dependency mold mnew;
-			);
+			let add ctx =
+				let prev = (try Some (Hashtbl.find ctx.g.modules m) with Not_found -> None) in
+				let mnew = Typeload.type_module ctx m ctx.m.curmod.m_extra.m_file [tdef,pos] pos in
+				add_dependency mnew ctx.m.curmod;
+				(* if we defined a type in an existing module, let's move the types here *)
+				(match prev with
+				| None ->
+					mnew.m_extra.m_kind <- MFake;
+				| Some mold ->
+					Hashtbl.replace ctx.g.modules mnew.m_path mold;
+					mold.m_types <- mold.m_types @ mnew.m_types;
+					mnew.m_extra.m_kind <- MSub;
+					add_dependency mold mnew;
+				);
+			in
+			add ctx;
+			(* if we are adding a class which has a macro field, we also have to add it to the macro context (issue #1497) *)
+			if not ctx.in_macro then match tdef,ctx.g.macros with
+			| EClass c,Some (_,mctx) when List.exists (fun cff -> (Meta.has Meta.Macro cff.cff_meta || List.mem AMacro cff.cff_access)) c.d_data ->
+				add mctx
+			| _ ->
+				()
 		);
 		Interp.define_module = (fun m types ->
 			let types = List.map (fun v ->
@@ -4571,8 +4592,12 @@ let call_macro ctx path meth args p =
 
 let call_init_macro ctx e =
 	let p = { pfile = "--macro"; pmin = 0; pmax = 0 } in
-	let api = make_macro_api ctx p in
-	let e = api.Interp.parse_string e p false in
+	let e = try
+		parse_expr_string ctx e p false
+	with err ->
+		display_error ctx ("Could not parse `" ^ e ^ "`") p;
+		raise err
+	in
 	match fst e with
 	| ECall (e,args) ->
 		let rec loop e =
