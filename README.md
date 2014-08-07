@@ -2,7 +2,7 @@
 
 # [Haxe - The Cross-Platform Toolkit](http://haxe.org)
 
-[![Build Status](https://travis-ci.org/Atry/haxe.png?branch=qifun)](https://travis-ci.org/Atry/haxe)
+[![Build Status](https://travis-ci.org/qifun/haxe.png?branch=qifun)](https://travis-ci.org/qifun/haxe)
 
 Haxe is an open source toolkit that allows you to easily build cross-platform tools and applications that target many mainstream platforms. The Haxe toolkit includes:
 
