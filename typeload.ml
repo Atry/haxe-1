@@ -466,7 +466,7 @@ and load_complex_type ctx p t =
 					error "Loop found in cascading signatures definitions. Please change order/import" p
 				| TAnon a2 ->
 					PMap.iter (fun _ cf -> ignore(is_redefined cf a2)) a.a_fields;
-					mk_anon (PMap.foldi PMap.add a.a_fields a2.a_fields)
+					TAnon { a_fields = (PMap.foldi PMap.add a.a_fields a2.a_fields); a_status = ref (Extend [t]); }
 				| _ -> error "Can only extend classes and structures" p
 			in
 			let loop t = match follow t with
@@ -488,6 +488,7 @@ and load_complex_type ctx p t =
 						mk_extension i
 					| _ ->
 						List.iter loop il;
+						a.a_status := Extend il;
 						ta);
 				t
 			) "constraint" in
@@ -2527,12 +2528,20 @@ let rec init_module_type ctx context_init do_init (decl,p) =
 					) l, rt)
 			) in
 			if PMap.mem c.ec_name e.e_constrs then error ("Duplicate constructor " ^ c.ec_name) p;
+			let eindex = try
+				match Meta.get Meta.CsNative c.ec_meta with
+					| (Meta.CsNative,[EConst (Int i), _], _) ->
+							int_of_string i
+					| _ -> raise Not_found
+				with Not_found ->
+					!index
+			in
 			let f = {
 				ef_name = c.ec_name;
 				ef_type = t;
 				ef_pos = p;
 				ef_doc = c.ec_doc;
-				ef_index = !index;
+				ef_index = eindex;
 				ef_params = params;
 				ef_meta = c.ec_meta;
 			} in
