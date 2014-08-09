@@ -52,7 +52,7 @@ private typedef NativeString = String;
 			uint sIndex = (startIndex.hasValue) ? ((uint) startIndex.@value) : 0;
 			if (sIndex >= me.Length)
 				return -1;
-			return me.IndexOf(str, (int)sIndex, System.StringComparison.Ordinal);
+			return me.IndexOf(str, (int)sIndex);
 	')
 	public static function indexOf(me:NativeString, str:NativeString, ?startIndex:Int):Int
 	{
@@ -87,7 +87,7 @@ private typedef NativeString = String;
 
 				return -1;
 			} else {
-				return me.LastIndexOf(str, sIndex, System.StringComparison.Ordinal);
+				return me.LastIndexOf(str, sIndex);
 			}
 	')
 	public static function lastIndexOf(me:NativeString, str:NativeString, ?startIndex:Int):Int
@@ -182,7 +182,7 @@ private typedef NativeString = String;
 	}
 
 	@:functionCode('
-			return me.ToLowerInvariant();
+			return me.ToLower();
 	')
 	public static function toLowerCase(me:NativeString):NativeString
 	{
@@ -190,7 +190,7 @@ private typedef NativeString = String;
 	}
 
 	@:functionCode('
-			return me.ToUpperInvariant();
+			return me.ToUpper();
 	')
 	public static function toUpperCase(me:NativeString):NativeString
 	{
