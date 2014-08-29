@@ -1,5 +1,5 @@
 /*
- * Copyright (C)2005-2012 Haxe Foundation
+ * Copyright (C)2005-2014 Haxe Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -19,37 +19,14 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-package sys.net;
 
-@:coreApi
-class Host {
+package haxe;
 
-	private var _ip : String;
-	public var ip(default,null) : Int;
+/**
+    A special abstract type that represents "rest" function argument.
 
-	public function new( name : String ) : Void {
-		if(~/^(\d{1,3}\.){3}\d{1,3}$/.match(name)) {
-		  _ip = name;
-		} else {
-			_ip = untyped __call__('gethostbyname', name);
-			if(_ip == name) {
-				ip = 0;
-				return;
-			}
-		}
-		var p = _ip.split('.');
-		ip = untyped __call__('intval', __call__('sprintf', '%02X%02X%02X%02X', p[3], p[2], p[1], p[0]), 16);
-	}
-
-	public function toString() : String {
-		return _ip;
-	}
-
-	public function reverse() : String {
-		return untyped __call__('gethostbyaddr', _ip);
-	}
-
-	public static function localhost() : String {
-		return untyped __var__('_SERVER', 'HTTP_HOST');
-	}
-}
+    Should be used as a type for the last argument of an extern method,
+    representing that arbitrary number of arguments of given type can be
+    passed to that method.
+**/
+abstract Rest<T>(Array<T>) { }

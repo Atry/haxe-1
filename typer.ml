@@ -716,8 +716,8 @@ let rec unify_call_params ctx ?(overloads=None) cf el args r p inline =
 			(null (ctx.t.tnull t) p, true)
 		end
 	in
-	let force_inline = match cf with Some(TInst(c,_),f) -> is_forced_inline (Some c) f | _ -> false in
-	let rec loop acc l l2 skip =
+	let force_inline, is_extern = match cf with Some(TInst(c,_),f) -> is_forced_inline (Some c) f, c.cl_extern | _ -> false, false in
+	let rec loop acc l l2 skip check_rest =
 		match l , l2 with
 		| [] , [] ->
 			begin match !invalid_skips with
@@ -737,10 +737,28 @@ let rec unify_call_params ctx ?(overloads=None) cf el args r p inline =
 					List.map fst args, tf
 			else
 				List.map fst args, tf
+		| l , [(name,opt,t)] when check_rest ->
+			(match follow t with
+				| TAbstract({a_path=(["haxe"],"Rest")},[t]) ->
+					let rec process acc el =
+						match el with
+						| [] -> acc
+						| ee :: rest ->
+							let e = type_expr ctx ee (WithTypeResume t) in
+							begin try
+								unify_raise ctx e.etype t e.epos
+							with Error (Unify ul,p) ->
+								raise (Error (Stack (Unify ul,Custom ("For rest function argument '" ^ name ^ "'")), p))
+							end;
+							process ((Codegen.Abstract.check_cast ctx t e p,false) :: acc) rest
+					in
+					loop (process acc l) [] [] skip false
+				| _ ->
+					loop acc l l2 skip false)
 		| [] , (_,false,_) :: _ ->
 			error (List.fold_left (fun acc (_,_,t) -> default_value t None :: acc) acc l2) "Not enough"
 		| [] , (name,true,t) :: l ->
-			loop (default_value t None :: acc) [] l skip
+			loop (default_value t None :: acc) [] l skip check_rest
 		| _ , [] ->
 			(match List.rev skip with
 			| [] -> error acc "Too many"
@@ -750,15 +768,15 @@ let rec unify_call_params ctx ?(overloads=None) cf el args r p inline =
 			try
 				let e = type_expr ctx ee (WithTypeResume t) in
 				(try unify_raise ctx e.etype t e.epos with Error (Unify l,p) -> raise (WithTypeError (l,p)));
-				loop ((Codegen.Abstract.check_cast ctx t e p,false) :: acc) l l2 skip
+				loop ((Codegen.Abstract.check_cast ctx t e p,false) :: acc) l l2 skip check_rest
 			with
 				WithTypeError (ul,p) ->
 					if opt then
-						loop (default_value t (Some (name,p)) :: acc) (ee :: l) l2 ((name,ul) :: skip)
+						loop (default_value t (Some (name,p)) :: acc) (ee :: l) l2 ((name,ul) :: skip) check_rest
 					else
 						arg_error ul name false p
 	in
-	loop [] el args []
+	loop [] el args [] is_extern
 
 let fast_enum_field e ef p =
 	let et = mk (TTypeExpr (TEnumDecl e)) (TAnon { a_fields = PMap.empty; a_status = ref (EnumStatics e) }) p in
@@ -886,7 +904,11 @@ let rec acc_get ctx g p =
 	| AKUsing (et,c,cf,e) when ctx.in_display ->
 		(* Generate a TField node so we can easily match it for position/usage completion (issue #1968) *)
 		let ec = type_module_type ctx (TClassDecl c) None p in
-		mk (TField(ec,FStatic(c,cf))) et.etype et.epos
+		let t = match follow et.etype with
+			| TFun (_ :: args,ret) -> TFun(args,ret)
+			| _ -> et.etype
+		in
+		mk (TField(ec,FStatic(c,cf))) t et.epos
 	| AKUsing (et,_,cf,e) ->
 		(* build a closure with first parameter applied *)
 		(match follow et.etype with
@@ -3455,12 +3477,8 @@ and handle_display ctx e iscall p =
 				else if field_name fa = "match" then (match follow e1.etype with
 					| TEnum _ as t -> {e1 with etype = tfun [t] ctx.t.tbool }
 					| _ -> e)
-				else begin match fa,follow e.etype with
-					| FStatic(_,cf),TFun(args,ret) when Meta.has Meta.Impl cf.cf_meta ->
-						{e with etype = TFun(List.tl args,ret)}
-					| _ ->
-						e
-				end
+				else
+					e
 			| _ ->
 				e
 		in
