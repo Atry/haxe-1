@@ -780,7 +780,7 @@ let configure gen =
 
 	(*let string_ref = get_cl ( get_type gen (["haxe";"lang"], "StringRefl")) in*)
 
-	let ti64 = match ( get_type gen (["haxe";"_Int64"], "NativeInt64") ) with | TTypeDecl t -> TType(t,[]) | _ -> assert false in
+	let ti64 = match ( get_type gen (["java"], "Int64") ) with | TAbstractDecl a -> TAbstract(a,[]) | _ -> assert false in
 
 	let has_tdynamic params =
 		List.exists (fun e -> match run_follow gen e with | TDynamic _ -> true | _ -> false) params
@@ -810,8 +810,8 @@ let configure gen =
 									| TInst ({ cl_path = ["haxe"],"Int64" },[])
 									| TInst ({ cl_path = ([],"Int") },[])
 									| TAbstract ({ a_path = ([],"Int") },[])
-									| TType ({ t_path = ["haxe";"_Int64"], "NativeInt64" },[])
-									| TAbstract ({ a_path = ["haxe";"_Int64"], "NativeInt64" },[])
+									| TType ({ t_path = ["java"], "Int64" },[])
+									| TAbstract ({ a_path = ["java"], "Int64" },[])
 									| TType ({ t_path = ["java"],"Int8" },[])
 									| TAbstract ({ a_path = ["java"],"Int8" },[])
 									| TType ({ t_path = ["java"],"Int16" },[])
@@ -822,7 +822,7 @@ let configure gen =
 									| TAbstract ({ a_path = [],"Single" },[]) ->
 											basic.tnull f_t
 									(*| TType ({ t_path = [], "Null"*)
-									| TInst (cl, ((_ :: _) as p)) ->
+									| TInst (cl, ((_ :: _) as p)) when cl.cl_path <> (["java"],"NativeArray") ->
 										TInst(cl, List.map (fun _ -> t_dynamic) p)
 									| TEnum (e, ((_ :: _) as p)) ->
 										TEnum(e, List.map (fun _ -> t_dynamic) p)
@@ -861,8 +861,8 @@ let configure gen =
 			| TAbstract ({ a_path = ([],"Int") },[])
 			| TInst( { cl_path = (["haxe"], "Int32") }, [] )
 			| TInst( { cl_path = (["haxe"], "Int64") }, [] )
-			| TType ({ t_path = ["haxe";"_Int64"], "NativeInt64" },[])
-			| TAbstract ({ a_path = ["haxe";"_Int64"], "NativeInt64" },[])
+			| TType ({ t_path = ["java"], "Int64" },[])
+			| TAbstract ({ a_path = ["java"], "Int64" },[])
 			| TType ({ t_path = ["java"],"Int8" },[])
 			| TAbstract ({ a_path = ["java"],"Int8" },[])
 			| TType ({ t_path = ["java"],"Int16" },[])
@@ -872,7 +872,7 @@ let configure gen =
 			| TType ({ t_path = [],"Single" },[])
 			| TAbstract ({ a_path = [],"Single" },[])
 			| TType ({ t_path = [],"Null" },[_]) -> Some t
-			| TAbstract ({ a_impl = Some _ } as a, pl) ->
+			| TAbstract (a, pl) when not (Meta.has Meta.CoreType a.a_meta) ->
 					Some (gen.gfollow#run_f ( Codegen.Abstract.get_underlying_type a pl) )
 			| TAbstract( { a_path = ([], "EnumValue") }, _ )
 			| TInst( { cl_path = ([], "EnumValue") }, _  ) -> Some t_dynamic
@@ -889,7 +889,7 @@ let configure gen =
 	let rec real_type t =
 		let t = gen.gfollow#run_f t in
 		match t with
-			| TAbstract ({ a_impl = Some _ } as a, pl) ->
+			| TAbstract (a, pl) when not (Meta.has Meta.CoreType a.a_meta) ->
 				real_type (Codegen.Abstract.get_underlying_type a pl)
 			| TInst( { cl_path = (["haxe"], "Int32") }, [] ) -> gen.gcon.basic.tint
 			| TInst( { cl_path = (["haxe"], "Int64") }, [] ) -> ti64
@@ -980,8 +980,8 @@ let configure gen =
 			| TAbstract ({ a_path = ([],"Float") },[]) -> "double"
 			| TInst ({ cl_path = ([],"Int") },[])
 			| TAbstract ({ a_path = ([],"Int") },[]) -> "int"
-			| TType ({ t_path = ["haxe";"_Int64"], "NativeInt64" },[])
-			| TAbstract ({ a_path = ["haxe";"_Int64"], "NativeInt64" },[]) -> "long"
+			| TType ({ t_path = ["java"], "Int64" },[])
+			| TAbstract ({ a_path = ["java"], "Int64" },[]) -> "long"
 			| TType ({ t_path = ["java"],"Int8" },[])
 			| TAbstract ({ a_path = ["java"],"Int8" },[]) -> "byte"
 			| TType ({ t_path = ["java"],"Int16" },[])
@@ -1044,8 +1044,8 @@ let configure gen =
 			| TInst ({ cl_path = ([],"Int") },[])
 			| TAbstract ({ a_path = ([],"Int") },[]) ->
 					path_s_import pos (["java";"lang"], "Integer")
-			| TType ({ t_path = ["haxe";"_Int64"], "NativeInt64" },[])
-			| TAbstract ({ a_path = ["haxe";"_Int64"], "NativeInt64" },[]) ->
+			| TType ({ t_path = ["java"], "Int64" },[])
+			| TAbstract ({ a_path = ["java"], "Int64" },[]) ->
 					path_s_import pos (["java";"lang"], "Long")
 			| TInst ({ cl_path = ["haxe"],"Int64" },[])
 			| TAbstract ({ a_path = ["haxe"],"Int64" },[]) ->
@@ -1161,7 +1161,7 @@ let configure gen =
 						| TInt i32 ->
 							print w "%ld" i32;
 							(match real_type e.etype with
-								| TType( { t_path = (["haxe";"_Int64"], "NativeInt64") }, [] ) -> write w "L";
+								| TType( { t_path = (["java"], "Int64") }, [] ) -> write w "L";
 								| _ -> ()
 							)
 						| TFloat s ->
@@ -1176,7 +1176,7 @@ let configure gen =
 						| TBool b -> write w (if b then "true" else "false")
 						| TNull ->
 							(match real_type e.etype with
-								| TType( { t_path = (["haxe";"_Int64"], "NativeInt64") }, [] )
+								| TAbstract( { a_path = (["java"], "Int64") }, [] )
 								| TInst( { cl_path = (["haxe"], "Int64") }, [] ) -> write w "0L"
 								| TInst( { cl_path = (["haxe"], "Int32") }, [] )
 								| TInst({ cl_path = ([], "Int") },[])
@@ -1189,7 +1189,7 @@ let configure gen =
 									expr_s w { e with eexpr = TConst(TInt Int32.zero) }
 								| TAbstract _ when like_float e.etype ->
 									expr_s w { e with eexpr = TConst(TFloat "0.0") }
-								| _ -> write w "null")
+								| t -> write w ("null") )
 						| TThis -> write w "this"
 						| TSuper -> write w "super")
 				| TLocal { v_name = "__fallback__" } -> ()
@@ -1448,7 +1448,11 @@ let configure gen =
 						List.iter (fun e ->
 							write w "case ";
 							in_value := true;
-							expr_s w e;
+							(match e.eexpr with
+								| TField(_,FEnum(e,ef)) ->
+									write w ef.ef_name
+								| _ ->
+									expr_s w e);
 							write w ":";
 						) el;
 						newline w;
@@ -2046,6 +2050,7 @@ let configure gen =
 				| TAbstract ({ a_path = ([], "Int") },[])
 				| TEnum({ e_path = ([], "Bool") }, [])
 				| TAbstract ({ a_path = ([], "Bool") },[]) -> Some t
+				| t when is_java_basic_type t -> Some t
 				| _ -> None )
 		| _ -> None
 	in
@@ -2459,6 +2464,7 @@ and convert_signature ctx p jsig =
 	(** other std types *)
 	| TObject ( (["java";"lang"], "Object"), [] ) -> mk_type_path ctx ([], "Dynamic") []
 	| TObject ( (["java";"lang"], "String"), [] ) -> mk_type_path ctx ([], "String") []
+	| TObject ( (["java";"lang"], "Enum"), [_] ) -> mk_type_path ctx ([], "EnumValue") []
 	(** other types *)
 	| TObject ( path, [] ) ->
 		(match lookup_jclass ctx.jcom path with
