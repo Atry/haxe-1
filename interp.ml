@@ -2478,7 +2478,7 @@ let macro_lib =
 				| TAbstract _ | TEnum _ | TInst _ | TFun _ | TAnon _ | TDynamic _ ->
 					t
 				| TType (t,tl) ->
-					apply_params t.t_types tl t.t_type
+					apply_params t.t_params tl t.t_type
 				| TLazy f ->
 					(!f)()
 			in
@@ -4259,7 +4259,7 @@ let rec encode_mtype t fields =
 		"isPrivate", VBool i.mt_private;
 		"meta", encode_meta i.mt_meta (fun m -> i.mt_meta <- m);
 		"doc", null enc_string i.mt_doc;
-		"params", encode_type_params i.mt_types;
+		"params", encode_type_params i.mt_params;
 	] @ fields)
 
 and encode_type_params tl =
@@ -4539,7 +4539,7 @@ and encode_tfunc func =
 
 and encode_field_access fa =
 	let tag,pl = match fa with
-		| FInstance(c,cf) -> 0,[encode_clref c;encode_cfref cf]
+		| FInstance(c,_,cf) -> 0,[encode_clref c;encode_cfref cf] (* TODO: breaking change, kind of *)
 		| FStatic(c,cf) -> 1,[encode_clref c;encode_cfref cf]
 		| FAnon(cf) -> 2,[encode_cfref cf]
 		| FDynamic(s) -> 3,[enc_string s]
@@ -4578,9 +4578,7 @@ and encode_texpr e =
 				enc_array (List.map (fun (el,e) -> enc_obj ["values",encode_texpr_list el;"expr",loop e]) cases);
 				vopt encode_texpr edef
 				]
-			| TPatMatch _ ->
-				assert false
-			| TTry(e1,catches) -> 20,[
+			| TTry(e1,catches) -> 19,[
 				loop e1;
 				enc_array (List.map (fun (v,e) ->
 					enc_obj [
@@ -4588,13 +4586,13 @@ and encode_texpr e =
 						"expr",loop e
 					]) catches
 				)]
-			| TReturn e1 -> 21,[vopt encode_texpr e1]
-			| TBreak -> 22,[]
-			| TContinue -> 23,[]
-			| TThrow e1 -> 24,[loop e1]
-			| TCast(e1,mt) -> 25,[loop e1;match mt with None -> VNull | Some mt -> encode_module_type mt]
-			| TMeta(m,e1) -> 26,[encode_meta_entry m;loop e1]
-			| TEnumParameter(e1,ef,i) -> 27,[loop e1;encode_efield ef;VInt i]
+			| TReturn e1 -> 20,[vopt encode_texpr e1]
+			| TBreak -> 21,[]
+			| TContinue -> 22,[]
+			| TThrow e1 -> 23,[loop e1]
+			| TCast(e1,mt) -> 24,[loop e1;match mt with None -> VNull | Some mt -> encode_module_type mt]
+			| TMeta(m,e1) -> 25,[encode_meta_entry m;loop e1]
+			| TEnumParameter(e1,ef,i) -> 26,[loop e1;encode_efield ef;VInt i]
 		in
 		enc_obj [
 			"pos", encode_pos e.epos;
@@ -4689,7 +4687,9 @@ let decode_efield v =
 
 let decode_field_access v =
 	match decode_enum v with
-	| 0, [c;cf] -> FInstance(decode_ref c,decode_ref cf)
+	| 0, [c;cf] ->
+		let c = decode_ref c in
+		FInstance(c,List.map snd c.cl_params,decode_ref cf) (* TODO: breaking change? *)
 	| 1, [c;cf] -> FStatic(decode_ref c,decode_ref cf)
 	| 2, [cf] -> FAnon(decode_ref cf)
 	| 3, [s] -> FDynamic(dec_string s)
@@ -4973,7 +4973,6 @@ let rec make_ast e =
 		) cases in
 		let def = match eopt def with None -> None | Some (EBlock [],_) -> Some None | e -> Some e in
 		ESwitch (make_ast e,cases,def)
-	| TPatMatch _
 	| TEnumParameter _ ->
 		(* these are considered complex, so the AST is handled in TMeta(Meta.Ast) *)
 		assert false

@@ -244,7 +244,7 @@ let write_mappings ctx =
 	output_string channel "{\n";
 	output_string channel "\"version\":3,\n";
 	output_string channel ("\"file\":\"" ^ (String.concat "\\\\" (ExtString.String.nsplit basefile "\\")) ^ "\",\n");
-	output_string channel ("\"sourceRoot\":\"file://\",\n");
+	output_string channel ("\"sourceRoot\":\"file:///\",\n");
 	output_string channel ("\"sources\":[" ^
 		(String.concat "," (List.map (fun s -> "\"" ^ to_url s ^ "\"") sources)) ^
 		"],\n");
@@ -306,7 +306,7 @@ let rec has_return e =
 let rec iter_switch_break in_switch e =
 	match e.eexpr with
 	| TFunction _ | TWhile _ | TFor _ -> ()
-	| TSwitch _ | TPatMatch _ when not in_switch -> iter_switch_break true e
+	| TSwitch _ when not in_switch -> iter_switch_break true e
 	| TBreak when in_switch -> raise Exit
 	| _ -> iter (iter_switch_break in_switch) e
 
@@ -704,7 +704,6 @@ and gen_expr ctx e =
 		bend();
 		newline ctx;
 		spr ctx "}";
-	| TPatMatch dt -> assert false
 	| TSwitch (e,cases,def) ->
 		spr ctx "switch";
 		gen_value ctx e;
@@ -873,7 +872,6 @@ and gen_value ctx e =
 			match def with None -> None | Some e -> Some (assign e)
 		)) e.etype e.epos);
 		v()
-	| TPatMatch dt -> assert false
 	| TTry (b,catchs) ->
 		let v = value() in
 		let block e = mk (TBlock [e]) e.etype e.epos in
@@ -1140,7 +1138,10 @@ let generate_type ctx = function
 		(* Special case, want to add Math.__name__ only when required, handle here since Math is extern *)
 		let p = s_path ctx c.cl_path in
 		if p = "Math" then generate_class___name__ ctx c;
-		if not c.cl_extern then
+		(* Another special case for Std because we do not want to generate it if it's empty. *)
+		if p = "Std" && c.cl_ordered_statics = [] then
+			()
+		else if not c.cl_extern then
 			generate_class ctx c
 		else if Meta.has Meta.JsRequire c.cl_meta then
 			generate_require ctx c

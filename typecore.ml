@@ -122,13 +122,20 @@ and typer = {
 	mutable on_error : typer -> string -> pos -> unit;
 }
 
-type error_msg =
+type call_error =
+	| Not_enough_arguments
+	| Too_many_arguments
+	| Could_not_unify of error_msg
+	| Cannot_skip_non_nullable of string
+
+and error_msg =
 	| Module_not_found of path
 	| Type_not_found of path * string
 	| Unify of unify_error list
 	| Custom of string
 	| Unknown_ident of string
 	| Stack of error_msg * error_msg
+	| Call_error of call_error
 
 exception Fatal_error of string * Ast.pos
 
@@ -253,6 +260,13 @@ let rec error_msg = function
 	| Unknown_ident s -> "Unknown identifier : " ^ s
 	| Custom s -> s
 	| Stack (m1,m2) -> error_msg m1 ^ "\n" ^ error_msg m2
+	| Call_error err -> s_call_error err
+
+and s_call_error = function
+	| Not_enough_arguments -> "Not enough arguments"
+	| Too_many_arguments -> "Too many arguments"
+	| Could_not_unify err -> error_msg err
+	| Cannot_skip_non_nullable s -> "Cannot skip non-nullable argument " ^ s
 
 let pass_name = function
 	| PBuildModule -> "build-module"
@@ -318,6 +332,9 @@ let gen_local ctx t =
 			nv
 	in
 	add_local ctx (loop 0) t
+
+let is_gen_local v =
+	String.unsafe_get v.v_name 0 = String.unsafe_get gen_local_prefix 0
 
 let not_opened = ref Closed
 let mk_anon fl = TAnon { a_fields = fl; a_status = not_opened; }

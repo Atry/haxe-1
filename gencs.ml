@@ -49,7 +49,7 @@ let rec is_cs_basic_type t =
 		| TAbstract _ when like_float t ->
 			true
 		| TAbstract(a,pl) when not (Meta.has Meta.CoreType a.a_meta) ->
-			is_cs_basic_type (Codegen.Abstract.get_underlying_type a pl)
+			is_cs_basic_type (Abstract.get_underlying_type a pl)
 		| TEnum(e, _) when not (Meta.has Meta.Class e.e_meta) -> true
 		| TInst(cl, _) when Meta.has Meta.Struct cl.cl_meta -> true
 		| _ -> false
@@ -132,7 +132,7 @@ let rec is_null t =
 	match t with
 		| TInst( { cl_path = (["haxe"; "lang"], "Null") }, _ )
 		| TType( { t_path = ([], "Null") }, _ ) -> true
-		| TType( t, tl ) -> is_null (apply_params t.t_types tl t.t_type)
+		| TType( t, tl ) -> is_null (apply_params t.t_params tl t.t_type)
 		| TMono r ->
 			(match !r with
 			| Some t -> is_null t
@@ -416,24 +416,24 @@ struct
 				(* end Std.int() *)
 
 				(* TODO: change cf_name *)
-				| TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = "length" })) ->
+				| TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = "length" })) ->
 					{ e with eexpr = TField(run ef, FDynamic "Length") }
-				| TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = "toLowerCase" })) ->
+				| TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = "toLowerCase" })) ->
 					{ e with eexpr = TField(run ef, FDynamic "ToLowerInvariant") }
-				| TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = "toUpperCase" })) ->
+				| TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = "toUpperCase" })) ->
 					{ e with eexpr = TField(run ef, FDynamic "ToUpperInvariant") }
 
 				| TCall( { eexpr = TField(_, FStatic({ cl_path = [], "String" }, { cf_name = "fromCharCode" })) }, [cc] ) ->
 					{ e with eexpr = TNew(get_cl_from_t basic.tstring, [], [mk_cast tchar (run cc); mk_int gen 1 cc.epos]) }
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("charAt" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("charCodeAt" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("indexOf" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("lastIndexOf" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("split" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("substring" as field) })) }, args )
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("substr" as field) })) }, args ) ->
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("charAt" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("charCodeAt" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("indexOf" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("lastIndexOf" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("split" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("substring" as field) })) }, args )
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("substr" as field) })) }, args ) ->
 					{ e with eexpr = TCall(mk_static_field_access_infer string_ext field e.epos [], [run ef] @ (List.map run args)) }
-				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, { cf_name = ("toString") })) }, [] ) ->
+				| TCall( { eexpr = TField(ef, FInstance({ cl_path = [], "String" }, _, { cf_name = ("toString") })) }, [] ) ->
 					run ef
 				| TNew( { cl_path = ([], "String") }, [], [p] ) -> run p (* new String(myString) -> myString *)
 
@@ -738,7 +738,7 @@ let configure gen =
 			| TAbstract ({ a_path = [],"Single" },[]) -> Some t
 			| TType ({ t_path = [],"Null" },[_]) -> Some t
 			| TAbstract (a, pl) when not (Meta.has Meta.CoreType a.a_meta) ->
-					Some (gen.gfollow#run_f ( Codegen.Abstract.get_underlying_type a pl) )
+					Some (gen.gfollow#run_f ( Abstract.get_underlying_type a pl) )
 			| TAbstract( { a_path = ([], "EnumValue") }, _	)
 			| TInst( { cl_path = ([], "EnumValue") }, _  ) -> Some t_dynamic
 			| _ -> None);
@@ -769,7 +769,7 @@ let configure gen =
 		let t = gen.gfollow#run_f t in
 		let ret = match t with
 			| TAbstract (a, pl) when not (Meta.has Meta.CoreType a.a_meta) ->
-				real_type (Codegen.Abstract.get_underlying_type a pl)
+				real_type (Abstract.get_underlying_type a pl)
 			| TInst( { cl_path = (["haxe"], "Int32") }, [] ) -> gen.gcon.basic.tint
 			| TInst( { cl_path = (["haxe"], "Int64") }, [] ) -> ti64
 			| TAbstract( { a_path = [],"Class" }, _ )
@@ -817,10 +817,10 @@ let configure gen =
 	*)
 	change_param_type md tl =
 		let types = match md with
-			| TClassDecl c -> c.cl_types
+			| TClassDecl c -> c.cl_params
 			| TEnumDecl e -> []
-			| TAbstractDecl a -> a.a_types
-			| TTypeDecl t -> t.t_types
+			| TAbstractDecl a -> a.a_params
+			| TTypeDecl t -> t.t_params
 		in
 		let is_hxgeneric = if types = [] then is_hxgen md else (TypeParams.RealTypeParams.is_hxgeneric md) in
 		let ret t =
@@ -922,7 +922,7 @@ let configure gen =
 					| _ -> "object")
 			| TDynamic _ -> "object"
 			| TAbstract(a,pl) when not (Meta.has Meta.CoreType a.a_meta) ->
-				t_s (Codegen.Abstract.get_underlying_type a pl)
+				t_s (Abstract.get_underlying_type a pl)
 			(* No Lazy type nor Function type made. That's because function types will be at this point be converted into other types *)
 			| _ -> if !strict_mode then begin trace ("[ !TypeError " ^ (Type.s_type (Type.print_context()) t) ^ " ]"); assert false end else "[ !TypeError " ^ (Type.s_type (Type.print_context()) t) ^ " ]"
 
@@ -966,7 +966,7 @@ let configure gen =
 
 	let has_semicolon e =
 		match e.eexpr with
-			| TBlock _ | TFor _ | TSwitch _ | TPatMatch _ | TTry _ | TIf _ -> false
+			| TBlock _ | TFor _ | TSwitch _ | TTry _ | TIf _ -> false
 			| TWhile (_,_,flag) when flag = Ast.NormalWhile -> false
 			| _ -> true
 	in
@@ -976,22 +976,22 @@ let configure gen =
 	let rec md_s md =
 		let md = follow_module (gen.gfollow#run_f) md in
 		match md with
-			| TClassDecl ({ cl_types = [] } as cl) ->
+			| TClassDecl ({ cl_params = [] } as cl) ->
 				t_s (TInst(cl,[]))
 			| TClassDecl (cl) when not (is_hxgen md) ->
-				t_s (TInst(cl,List.map (fun t -> t_dynamic) cl.cl_types))
-			| TEnumDecl ({ e_types = [] } as e) ->
+				t_s (TInst(cl,List.map (fun t -> t_dynamic) cl.cl_params))
+			| TEnumDecl ({ e_params = [] } as e) ->
 				t_s (TEnum(e,[]))
 			| TEnumDecl (e) when not (is_hxgen md) ->
-				t_s (TEnum(e,List.map (fun t -> t_dynamic) e.e_types))
+				t_s (TEnum(e,List.map (fun t -> t_dynamic) e.e_params))
 			| TClassDecl cl ->
 				t_s (TInst(cl,[]))
 			| TEnumDecl e ->
 				t_s (TEnum(e,[]))
 			| TTypeDecl t ->
-				t_s (TType(t, List.map (fun t -> t_dynamic) t.t_types))
+				t_s (TType(t, List.map (fun t -> t_dynamic) t.t_params))
 			| TAbstractDecl a ->
-				t_s (TAbstract(a, List.map(fun t -> t_dynamic) a.a_types))
+				t_s (TAbstract(a, List.map(fun t -> t_dynamic) a.a_params))
 	in
 
 	let rec ensure_local e explain =
@@ -1125,7 +1125,7 @@ let configure gen =
 						expr_s w v
 					end else
 						do_call w e [v]
-				| TField (e, (FStatic(_, cf) | FInstance(_, cf))) when Meta.has Meta.Native cf.cf_meta ->
+				| TField (e, (FStatic(_, cf) | FInstance(_, _, cf))) when Meta.has Meta.Native cf.cf_meta ->
 					let rec loop meta = match meta with
 						| (Meta.Native, [EConst (String s), _],_) :: _ ->
 							expr_s w e; write w "."; write_field w s
@@ -1161,7 +1161,7 @@ let configure gen =
 						| TSuper -> write w "base")
 				| TLocal { v_name = "__sbreak__" } -> write w "break"
 				| TLocal { v_name = "__undefined__" } ->
-					write w (t_s (TInst(runtime_cl, List.map (fun _ -> t_dynamic) runtime_cl.cl_types)));
+					write w (t_s (TInst(runtime_cl, List.map (fun _ -> t_dynamic) runtime_cl.cl_params)));
 					write w ".undefined";
 				| TLocal { v_name = "__typeof__" } -> write w "typeof"
 				| TLocal { v_name = "__sizeof__" } -> write w "sizeof"
@@ -1186,10 +1186,10 @@ let configure gen =
 						| TClassDecl { cl_interface = true } ->
 								write w ("global::" ^ module_s mt);
 								write w "__Statics_";
-						| TClassDecl cl -> write w (t_s (TInst(cl, List.map (fun _ -> t_empty) cl.cl_types)))
-						| TEnumDecl en -> write w (t_s (TEnum(en, List.map (fun _ -> t_empty) en.e_types)))
-						| TTypeDecl td -> write w (t_s (gen.gfollow#run_f (TType(td, List.map (fun _ -> t_empty) td.t_types))))
-						| TAbstractDecl a -> write w (t_s (TAbstract(a, List.map (fun _ -> t_empty) a.a_types)))
+						| TClassDecl cl -> write w (t_s (TInst(cl, List.map (fun _ -> t_empty) cl.cl_params)))
+						| TEnumDecl en -> write w (t_s (TEnum(en, List.map (fun _ -> t_empty) en.e_params)))
+						| TTypeDecl td -> write w (t_s (gen.gfollow#run_f (TType(td, List.map (fun _ -> t_empty) td.t_params))))
+						| TAbstractDecl a -> write w (t_s (TAbstract(a, List.map (fun _ -> t_empty) a.a_params)))
 					);
 					write w ".";
 					write_field w (field_name s)
@@ -1199,10 +1199,10 @@ let configure gen =
 					(match mt with
 						| TClassDecl { cl_path = (["haxe"], "Int64") } -> write w ("global::" ^ module_s mt)
 						| TClassDecl { cl_path = (["haxe"], "Int32") } -> write w ("global::" ^ module_s mt)
-						| TClassDecl cl -> write w (t_s (TInst(cl, List.map (fun _ -> t_dynamic) cl.cl_types)))
-						| TEnumDecl en -> write w (t_s (TEnum(en, List.map (fun _ -> t_dynamic) en.e_types)))
-						| TTypeDecl td -> write w (t_s (gen.gfollow#run_f (TType(td, List.map (fun _ -> t_dynamic) td.t_types))))
-						| TAbstractDecl a -> write w (t_s (TAbstract(a, List.map (fun _ -> t_dynamic) a.a_types)))
+						| TClassDecl cl -> write w (t_s (TInst(cl, List.map (fun _ -> t_dynamic) cl.cl_params)))
+						| TEnumDecl en -> write w (t_s (TEnum(en, List.map (fun _ -> t_dynamic) en.e_params)))
+						| TTypeDecl td -> write w (t_s (gen.gfollow#run_f (TType(td, List.map (fun _ -> t_dynamic) td.t_params))))
+						| TAbstractDecl a -> write w (t_s (TAbstract(a, List.map (fun _ -> t_dynamic) a.a_params)))
 					)
 				| TParenthesis e ->
 					write w "("; expr_s w e; write w ")"
@@ -1293,9 +1293,9 @@ let configure gen =
 				| TCall ({ eexpr = TLocal( { v_name = "__rethrow__" } ) }, _) ->
 					write w "throw"
 				(* operator overloading handling *)
-				| TCall({ eexpr = TField(ef, FInstance(cl,{ cf_name = "__get" })) }, [idx]) when not (is_hxgen (TClassDecl cl)) ->
+				| TCall({ eexpr = TField(ef, FInstance(cl,_,{ cf_name = "__get" })) }, [idx]) when not (is_hxgen (TClassDecl cl)) ->
 					expr_s w { e with eexpr = TArray(ef, idx) }
-				| TCall({ eexpr = TField(ef, FInstance(cl,{ cf_name = "__set" })) }, [idx; v]) when not (is_hxgen (TClassDecl cl)) ->
+				| TCall({ eexpr = TField(ef, FInstance(cl,_,{ cf_name = "__set" })) }, [idx; v]) when not (is_hxgen (TClassDecl cl)) ->
 					expr_s w { e with eexpr = TBinop(Ast.OpAssign, { e with eexpr = TArray(ef, idx) }, v) }
 				| TCall({ eexpr = TField(ef, FStatic(_,cf)) }, el) when PMap.mem cf.cf_name binops_names ->
 					let _, elr = extract_tparams [] el in
@@ -1478,7 +1478,6 @@ let configure gen =
 					if !strict_mode then assert false
 				| TObjectDecl _ -> write w "[ obj decl not supported ]"; if !strict_mode then assert false
 				| TFunction _ -> write w "[ func decl not supported ]"; if !strict_mode then assert false
-				| TPatMatch _ -> write w "[ match not supported ]"; if !strict_mode then assert false
 				| TEnumParameter _ -> write w "[ enum parameter not supported ]"; if !strict_mode then assert false
 		)
 		and do_call w e el =
@@ -1632,12 +1631,12 @@ let configure gen =
 			ret
 	in
 
-	let get_string_params cl_types =
-		match cl_types with
+	let get_string_params cl_params =
+		match cl_params with
 			| [] ->
 				("","")
 			| _ ->
-				let params = sprintf "<%s>" (String.concat ", " (List.map (fun (_, tcl) -> match follow tcl with | TInst(cl, _) -> snd cl.cl_path | _ -> assert false) cl_types)) in
+				let params = sprintf "<%s>" (String.concat ", " (List.map (fun (_, tcl) -> match follow tcl with | TInst(cl, _) -> snd cl.cl_path | _ -> assert false) cl_params)) in
 				let params_extends = List.fold_left (fun acc (name, t) ->
 					match run_follow gen t with
 						| TInst (cl, p) ->
@@ -1645,8 +1644,8 @@ let configure gen =
 								| [] -> acc
 								| _ -> acc) (* TODO
 								| _ -> (sprintf " where %s : %s" name (String.concat ", " (List.map (fun (cl,p) -> path_param_s (TClassDecl cl) cl.cl_path p) cl.cl_implements))) :: acc ) *)
-						| _ -> trace (t_s t); assert false (* FIXME it seems that a cl_types will never be anything other than cl.cl_types. I'll take the risk and fail if not, just to see if that confirms *)
-				) [] cl_types in
+						| _ -> trace (t_s t); assert false (* FIXME it seems that a cl_params will never be anything other than cl.cl_params. I'll take the risk and fail if not, just to see if that confirms *)
+				) [] cl_params in
 				(params, String.concat " " params_extends)
 	in
 
@@ -1787,7 +1786,7 @@ let configure gen =
 				let modifiers = modifiers @ modf in
 				let visibility, is_virtual = if is_explicit_iface then "",false else if visibility = "private" then "private",false else visibility, is_virtual in
 				let v_n = if is_static then "static " else if is_override && not is_interface then "override " else if is_virtual then "virtual " else "" in
-				let cf_type = if is_override && not is_overload && not (Meta.has Meta.Overload cf.cf_meta) then match field_access gen (TInst(cl, List.map snd cl.cl_types)) cf.cf_name with | FClassField(_,_,_,_,_,actual_t,_) -> actual_t | _ -> assert false else cf.cf_type in
+				let cf_type = if is_override && not is_overload && not (Meta.has Meta.Overload cf.cf_meta) then match field_access gen (TInst(cl, List.map snd cl.cl_params)) cf.cf_name with | FClassField(_,_,_,_,_,actual_t,_) -> actual_t | _ -> assert false else cf.cf_type in
 				let ret_type, args = match follow cf_type with | TFun (strbtl, t) -> (t, strbtl) | _ -> assert false in
 				let no_completion = if Meta.has Meta.NoCompletion cf.cf_meta then "[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)] " else "" in
 
@@ -1926,7 +1925,7 @@ let configure gen =
 				match cl.cl_array_access with
 					| None -> ()
 					| Some t ->
-						let changed_t = apply_params cl.cl_types (List.map (fun _ -> t_dynamic) cl.cl_types) t in
+						let changed_t = apply_params cl.cl_params (List.map (fun _ -> t_dynamic) cl.cl_params) t in
 						let t_as_s = t_s (run_follow gen changed_t) in
 						print w "%s %s.this[int key]" t_as_s (t_s (TInst(cl, args)));
 							begin_block w;
@@ -1944,7 +1943,7 @@ let configure gen =
 			) cl.cl_implements
 		with | Not_found -> ());
 		if cl.cl_interface && is_hxgen (TClassDecl cl) && is_some cl.cl_array_access then begin
-			let changed_t = apply_params cl.cl_types (List.map (fun _ -> t_dynamic) cl.cl_types) (get cl.cl_array_access) in
+			let changed_t = apply_params cl.cl_params (List.map (fun _ -> t_dynamic) cl.cl_params) (get cl.cl_array_access) in
 			print w "%s this[int key]" (t_s (run_follow gen changed_t));
 			begin_block w;
 				write w "get;";
@@ -1989,7 +1988,7 @@ let configure gen =
 					let this = if static then
 						mk_classtype_access cl f.cf_pos
 					else
-						{ eexpr = TConst TThis; etype = TInst(cl,List.map snd cl.cl_types); epos = f.cf_pos }
+						{ eexpr = TConst TThis; etype = TInst(cl,List.map snd cl.cl_params); epos = f.cf_pos }
 					in
 					print w "public %s%s %s" (if static then "static " else "") (t_s f.cf_type) (netname_to_hx f.cf_name);
 					begin_block w;
@@ -2057,7 +2056,7 @@ let configure gen =
 
 		print w "%s %s %s %s" access (String.concat " " modifiers) clt (change_clname (snd cl.cl_path));
 		(* type parameters *)
-		let params, params_ext = get_string_params cl.cl_types in
+		let params, params_ext = get_string_params cl.cl_params in
 		let extends_implements = (match cl.cl_super with | None -> [] | Some (cl,p) -> [path_param_s (TClassDecl cl) cl.cl_path p]) @ (List.map (fun (cl,p) -> path_param_s (TClassDecl cl) cl.cl_path p) cl.cl_implements) in
 		(match extends_implements with
 			| [] -> print w "%s %s" params params_ext
@@ -2093,7 +2092,7 @@ let configure gen =
 
 		(* collect properties *)
 		let partition_props cl cflist =
-			let t = TInst(cl, List.map snd cl.cl_types) in
+			let t = TInst(cl, List.map snd cl.cl_params) in
 			(* first get all vars declared as properties *)
 			let props, nonprops = List.partition (fun v -> match v.cf_kind with
 				| Var { v_read = AccCall } | Var { v_write = AccCall } ->
@@ -2105,7 +2104,7 @@ let configure gen =
 			let find_prop name = try
 					List.assoc name !props
 				with | Not_found -> match field_access gen t name with
-					| FClassField (_,_,decl,v,_,t,_) when is_extern_prop (TInst(cl,List.map snd cl.cl_types)) name ->
+					| FClassField (_,_,decl,v,_,t,_) when is_extern_prop (TInst(cl,List.map snd cl.cl_params)) name ->
 						let ret = ref (v,t,None,None) in
 						props := (name, ret) :: !props;
 						ret
@@ -2279,7 +2278,8 @@ let configure gen =
 		(fun e ->
 			match real_type e.etype with
 				| TInst({ cl_path = (["haxe";"lang"], "Null") }, [t]) ->
-						{ (mk_field_access gen e "value" e.epos) with etype = t }
+					let e = { e with eexpr = TParenthesis(e) } in
+					{ (mk_field_access gen e "value" e.epos) with etype = t }
 				| _ ->
 					trace (debug_type e.etype); gen.gcon.error "This expression is not a Nullable expression" e.epos; assert false
 		)
@@ -3270,11 +3270,9 @@ let convert_fun ctx p ret args =
 	let args = List.map (convert_fun_arg ctx p) args in
 	CTFunction(args, convert_signature ctx p ret)
 
-let get_clsname cpath =
-	match cpath with
-		| (_,[],n) -> netcl_to_hx n
-		| (_,nested,n) ->
-			String.concat "_" nested ^ "_" ^ netcl_to_hx n
+let get_clsname ctx cpath =
+	match netpath_to_hx ctx.nstd cpath with
+		| (_,n) -> n
 
 let convert_delegate ctx p ilcls =
 	let p = { p with pfile =	p.pfile ^" (abstract delegate)" } in
@@ -3300,7 +3298,7 @@ let convert_delegate ctx p ilcls =
 	let mk_op_fn op name p =
 		let fn_name = List.assoc op cs_binops in
 		let clsname = match ilcls.cpath with
-			| (ns,inner,n) -> get_clsname (ns,inner,"Delegate_"^n)
+			| (ns,inner,n) -> get_clsname ctx (ns,inner,"Delegate_"^n)
 		in
 		let expr = (ECall( (EField( (EConst(Ident (clsname)),p), fn_name ),p), [(EConst(Ident"arg1"),p);(EConst(Ident"arg2"),p)]),p) in
 		FFun {
@@ -3573,15 +3571,15 @@ let ilcls_with_params ctx cls params =
 			cimplements = List.map (fun s -> { s with snorm = ilapply_params params s.snorm } ) cls.cimplements;
 		}
 
-let rec compatible_types t1 t2 = match t1,t2 with
-	| LManagedPointer(s1), LManagedPointer(s2) -> compatible_types s1 s2
+let rec compatible_params t1 t2 = match t1,t2 with
+	| LManagedPointer(s1), LManagedPointer(s2) -> compatible_params s1 s2
 	| LManagedPointer(s1), s2 | s1, LManagedPointer(s2) ->
-		compatible_types s1 s2
+		compatible_params s1 s2
 	| _ -> t1 = t2
 
 let compatible_methods m1 m2 = match m1, m2 with
 	| LMethod(_,r1,a1), LMethod(_,r2,a2) -> (try
-		List.for_all2 (fun a1 a2 -> compatible_types a1 a2) a1 a2
+		List.for_all2 (fun a1 a2 -> compatible_params a1 a2) a1 a2
 	with | Invalid_argument _ ->
 		false)
 	| _ -> false
