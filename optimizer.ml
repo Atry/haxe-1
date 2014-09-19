@@ -277,7 +277,8 @@ let rec type_inline ctx cf f ethis params tret config p ?(self_calling_closure=f
 			| TConst TNull , Some c -> mk (TConst c) v.v_type e.epos
 			(* we have to check for abstract casts here because we can't do that later. However, we have to skip the check for the
 			   first argument of abstract implementation functions. *)
-			| _ when not (first && Meta.has Meta.Impl cf.cf_meta && cf.cf_name <> "_new") -> (!check_abstract_cast_ref) ctx (map_type v.v_type) e e.epos
+			(* actually we don't because unify_call_args takes care of that anyway *)
+			(* | _ when not (first && Meta.has Meta.Impl cf.cf_meta && cf.cf_name <> "_new") -> (!cast_or_unify_ref) ctx (map_type v.v_type) e e.epos *)
 			| _ -> e) :: loop pl al false
 		| [], (v,opt) :: al ->
 			(mk (TConst (match opt with None -> TNull | Some c -> c)) v.v_type p) :: loop [] al false
@@ -681,7 +682,8 @@ let rec optimize_for_loop ctx i e1 e2 p =
 			end;
 			begin try
 				(* first try: do we have an @:arrayAccess getter field? *)
-				let cf,tf,r = find_array_access a tl ctx.com.basic.tint (mk_mono()) false in
+				let todo = mk (TConst TNull) ctx.t.tint p in
+				let cf,_,r,_,_ = (!find_array_access_raise_ref) ctx a tl todo None p in
 				let get_next e_base e_index t p =
 					make_static_call ctx c cf (apply_params a.a_params tl) [e_base;e_index] r p
 				in

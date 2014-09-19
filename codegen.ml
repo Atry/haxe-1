@@ -385,7 +385,7 @@ let rec build_generic ctx c p tl =
 						if pl <> [] then raise Not_found;
 						let t = loop subst in
 						(* extended type parameter: concrete type must have a constructor, but generic base class must not have one *)
- 						begin match follow t,c.cl_constructor with
+						begin match follow t,c.cl_constructor with
 							| TInst({cl_constructor = None} as cs,_),None -> error ("Cannot use " ^ (s_type_path cs.cl_path) ^ " as type parameter because it is extended and has no constructor") p
 							| _,Some cf -> error "Generics extending type parameters cannot have constructors" cf.cf_pos
 							| _ -> ()
@@ -620,9 +620,6 @@ let on_inherit ctx c p h =
 	| HExtends { tpackage = ["haxe";"remoting"]; tname = "AsyncProxy"; tparams = [TPType(CTPath t)] } ->
 		extend_remoting ctx c t p true true;
 		false
-	| HExtends { tpackage = ["mt"]; tname = "AsyncProxy"; tparams = [TPType(CTPath t)] } ->
-		extend_remoting ctx c t p true false;
-		false
 	| HExtends { tpackage = ["haxe";"xml"]; tname = "Proxy"; tparams = [TPExpr(EConst (String file),p);TPType t] } ->
 		extend_xml_proxy ctx c t file p;
 		true
@@ -639,7 +636,7 @@ module AbstractCast = struct
 	let make_static_call ctx c cf a pl args t p =
 		make_static_call ctx c cf (apply_params a.a_params pl) args t p
 
-	let rec do_check_cast ctx tleft eright p =
+	let do_check_cast ctx tleft eright p =
 		let recurse cf f =
 			if cf == ctx.curfield || List.mem cf !cast_stack then error "Recursive implicit cast" p;
 			cast_stack := cf :: !cast_stack;
@@ -648,47 +645,113 @@ module AbstractCast = struct
 			r
 		in
 		let find a tl f =
-			let tcf,cfo = f() in
-			let mk_cast () =
-				let tcf = apply_params a.a_params tl tcf in
-				if type_iseq tcf tleft then
-					eright
-				else
-					(* TODO: causes Java overload issues *)
-					(* let eright = mk (TCast(eright,None)) tleft p in *)
-					do_check_cast ctx tcf eright p
-			in
-			match cfo,a.a_impl with
-				| None,_ ->
-					mk_cast();
-				| Some cf,_ when Meta.has Meta.MultiType a.a_meta ->
-					mk_cast();
-				| Some cf,Some c ->
-					recurse cf (fun () -> make_static_call ctx c cf a tl [eright] tleft p)
-				| _ ->
-					assert false
+			let tcf,cf = f() in
+			if (Meta.has Meta.MultiType a.a_meta) then
+				mk_cast eright tleft p
+			else match a.a_impl with
+				| Some c -> recurse cf (fun () -> make_static_call ctx c cf a tl [eright] tleft p)
+				| None -> assert false
 		in
 		if type_iseq tleft eright.etype then
 			eright
-		else try
-			begin match follow eright.etype with
-				| TAbstract(a,tl) ->
-					find a tl (fun () -> Abstract.find_to a tl tleft)
-				| _ ->
-					raise Not_found
-			end
-		with Not_found -> try
-			begin match follow tleft with
-				| TAbstract(a,tl) ->
-					find a tl (fun () -> Abstract.find_from a tl eright.etype tleft)
-				| _ ->
-					raise Not_found
-			end
+		else begin
+			let rec loop tleft tright = match follow tleft,follow tright with
+			| TAbstract(a1,tl1),TAbstract(a2,tl2) ->
+				begin try find a2 tl2 (fun () -> Abstract.find_to a2 tl2 tleft)
+				with Not_found -> try find a1 tl1 (fun () -> Abstract.find_from a1 tl1 eright.etype tleft)
+				with Not_found -> raise Not_found
+				end
+			| TAbstract(a,tl),_ ->
+				begin try find a tl (fun () -> Abstract.find_from a tl eright.etype tleft)
+				with Not_found ->
+					let rec loop2 tcl = match tcl with
+						| tc :: tcl ->
+							if not (type_iseq tc tleft) then loop (apply_params a.a_params tl tc) tright
+							else loop2 tcl
+						| [] -> raise Not_found
+					in
+					loop2 a.a_from
+				end
+			| _,TAbstract(a,tl) ->
+				begin try find a tl (fun () -> Abstract.find_to a tl tleft)
+				with Not_found ->
+					let rec loop2 tcl = match tcl with
+						| tc :: tcl ->
+							if not (type_iseq tc tright) then loop tleft (apply_params a.a_params tl tc)
+							else loop2 tcl
+						| [] -> raise Not_found
+					in
+					loop2 a.a_to
+				end
+			| _ ->
+				raise Not_found
+			in
+			loop tleft eright.etype
+		end
+
+	let cast_or_unify_raise ctx tleft eright p =
+		try
+			if ctx.com.display <> DMNone then raise Not_found;
+			do_check_cast ctx tleft eright p
 		with Not_found ->
+			unify_raise ctx eright.etype tleft p;
 			eright
 
-	let check_cast ctx tleft eright p =
-		if ctx.com.display <> DMNone then eright else do_check_cast ctx tleft eright p
+	let cast_or_unify ctx tleft eright p =
+		try
+			cast_or_unify_raise ctx tleft eright p
+		with Error (Unify _ as err,_) ->
+			if not ctx.untyped then display_error ctx (error_msg err) p;
+			eright
+
+	let find_array_access_raise ctx a pl e1 e2o p =
+		let is_set = e2o <> None in
+		let ta = apply_params a.a_params pl a.a_this in
+		let rec loop cfl = match cfl with
+			| [] -> raise Not_found
+			| cf :: cfl when not (Ast.Meta.has Ast.Meta.ArrayAccess cf.cf_meta) ->
+				loop cfl
+			| cf :: cfl ->
+				let monos = List.map (fun _ -> mk_mono()) cf.cf_params in
+				let map t = apply_params a.a_params pl (apply_params cf.cf_params monos t) in
+				let check_constraints () =
+					List.iter2 (fun m (name,t) -> match follow t with
+						| TInst ({ cl_kind = KTypeParameter constr },_) when constr <> [] ->
+							List.iter (fun tc -> match follow m with TMono _ -> raise (Unify_error []) | _ -> Type.unify m (map tc) ) constr
+						| _ -> ()
+					) monos cf.cf_params;
+				in
+				match follow (map cf.cf_type) with
+				| TFun([(_,_,tab);(_,_,ta1);(_,_,ta2)],r) as tf when is_set ->
+					begin try
+						Type.unify tab ta;
+						let e1 = cast_or_unify ctx ta1 e1 p in
+						let e2o = match e2o with None -> None | Some e2 -> Some (cast_or_unify ctx ta2 e2 p) in
+						check_constraints();
+						cf,tf,r,e1,e2o
+					with Unify_error _ ->
+						loop cfl
+					end
+				| TFun([(_,_,tab);(_,_,ta1)],r) as tf when not is_set ->
+					begin try
+						Type.unify tab ta;
+						let e1 = cast_or_unify ctx ta1 e1 p in
+						check_constraints();
+						cf,tf,r,e1,None
+					with Unify_error _ ->
+						loop cfl
+					end
+				| _ -> loop cfl
+		in
+		loop a.a_array
+
+	let find_array_access ctx a tl e1 e2o p =
+		try find_array_access_raise ctx a tl e1 e2o p
+		with Not_found -> match e2o with
+			| None ->
+				error (Printf.sprintf "No @:arrayAccess function accepts argument of %s" (s_type (print_context()) e1.etype)) p
+			| Some e2 ->
+				error (Printf.sprintf "No @:arrayAccess function accepts arguments of %s and %s" (s_type (print_context()) e1.etype) (s_type (print_context()) e2.etype)) p
 
 	let find_multitype_specialization com a pl p =
 		let m = mk_mono() in
@@ -723,7 +786,7 @@ module AbstractCast = struct
 				end;
 				tl
 		in
-		let _,cfo =
+		let _,cf =
 			try
 				Abstract.find_to a tl m
 			with Not_found ->
@@ -734,9 +797,7 @@ module AbstractCast = struct
 				else
 					error ("Abstract " ^ (s_type_path a.a_path) ^ " has no @:to function that accepts " ^ st) p;
 		in
-		match cfo with
-			| None -> assert false
-			| Some cf -> cf, follow m
+		cf, follow m
 
 	let handle_abstract_casts ctx e =
 		let rec loop ctx e = match e.eexpr with
@@ -793,7 +854,7 @@ end
 
 module PatternMatchConversion = struct
 
- 	type cctx = {
+	type cctx = {
 		ctx : typer;
 		mutable eval_stack : ((tvar * pos) * texpr) list list;
 		dt_lookup : dt array;
@@ -1214,7 +1275,6 @@ let rec is_volatile t =
 		is_volatile (!f())
 	| TType (t,tl) ->
 		(match t.t_path with
-		| ["mt";"flash"],"Volatile" -> true
 		| _ -> is_volatile (apply_params t.t_params tl t.t_type))
 	| _ ->
 		false
@@ -1451,7 +1511,7 @@ struct
 				(cacc, rate_tp tlf tla)
 			else
 				let ret = ref None in
-				if List.exists (fun (t,_) -> try
+				if List.exists (fun t -> try
 					ret := Some (rate_conv (cacc+1) (apply_params af.a_params tlf t) targ);
 					true
 				with | Not_found ->
@@ -1459,7 +1519,7 @@ struct
 				) af.a_from then
 					Option.get !ret
 			else
-				if List.exists (fun (t,_) -> try
+				if List.exists (fun t -> try
 					ret := Some (rate_conv (cacc+1) tfun (apply_params aa.a_params tla t));
 					true
 				with | Not_found ->
@@ -1715,3 +1775,38 @@ module DeprecationCheck = struct
 				()
 		) com.types
 end
+
+let interpolate_code com code tl f_string f_expr p =
+	let exprs = Array.of_list tl in
+	let i = ref 0 in
+	let err msg =
+		let pos = { p with pmin = p.pmin + !i } in
+		com.error msg pos
+	in
+	let regex = Str.regexp "[{}]" in
+	let rec loop m = match m with
+		| [] ->
+			()
+		| Str.Text txt :: tl ->
+			i := !i + String.length txt;
+			f_string txt;
+			loop tl
+		| Str.Delim a :: Str.Delim b :: tl when a = b ->
+			i := !i + 2;
+			f_string a;
+			loop tl
+		| Str.Delim "{" :: Str.Text n :: Str.Delim "}" :: tl ->
+			(try
+				let expr = Array.get exprs (int_of_string n) in
+				f_expr expr;
+				i := !i + 2 + String.length n;
+				loop tl
+			with
+			| Failure "int_of_string" ->
+				err ("Index expected. Got " ^ n)
+			| Invalid_argument _ ->
+				err ("Out-of-bounds special parameter: " ^ n))
+			| Str.Delim x :: _ ->
+				err ("Unexpected " ^ x)
+	in
+	loop (Str.full_split regex code)

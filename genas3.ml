@@ -48,7 +48,7 @@ type context = {
 let is_var_field f =
 	match f with
 	| FStatic (_,f) | FInstance (_,_,f) ->
-		(match f.cf_kind with Var _ -> true | _ -> false)
+		(match f.cf_kind with Var _ | Method MethDynamic -> true | _ -> false)
 	| _ ->
 		false
 
@@ -593,13 +593,18 @@ and gen_expr ctx e =
 		gen_field_access ctx e1.etype s;
 		print ctx " %s " (Ast.s_binop op);
 		gen_value_op ctx e2; *)
+	(* assignments to variable or dynamic methods fields on interfaces are generated as class["field"] = value *)
+	| TBinop (op,{eexpr = TField (ei, FInstance({cl_interface = true},_,{cf_kind = (Method MethDynamic | Var _); cf_name = s}))},e2) ->
+		gen_value ctx ei;
+		print ctx "[\"%s\"]" s;
+		print ctx " %s " (Ast.s_binop op);
+		gen_value_op ctx e2;
 	| TBinop (op,e1,e2) ->
 		gen_value_op ctx e1;
 		print ctx " %s " (Ast.s_binop op);
 		gen_value_op ctx e2;
-	(* variable fields on interfaces are generated as (class["field"] as class) *)
-	| TField ({etype = TInst({cl_interface = true} as c,_)} as ei,FInstance (_,_,{ cf_name = s }))
-		when (try (match (PMap.find s c.cl_fields).cf_kind with Var _ -> true | _ -> false) with Not_found -> false) ->
+	(* variable fields and dynamic methods on interfaces are generated as (class["field"] as class) *)
+	| TField (ei, FInstance({cl_interface = true},_,{cf_kind = (Method MethDynamic | Var _); cf_name = s})) ->
 		spr ctx "(";
 		gen_value ctx ei;
 		print ctx "[\"%s\"]" s;
@@ -990,7 +995,7 @@ let generate_field ctx static f =
 		let is_getset = (match f.cf_kind with Var { v_read = AccCall } | Var { v_write = AccCall } -> true | _ -> false) in
 		if ctx.curclass.cl_interface then
 			match follow f.cf_type with
-			| TFun (args,r) ->
+			| TFun (args,r) when (match f.cf_kind with Method MethDynamic | Var _ -> false | _ -> true) ->
 				let rec loop = function
 					| [] -> f.cf_name
 					| (Ast.Meta.Getter,[Ast.EConst (Ast.String name),_],_) :: _ -> "get " ^ name
@@ -1004,20 +1009,6 @@ let generate_field ctx static f =
 					if o then print ctx " = %s" (default_value tstr);
 				) args;
 				print ctx ") : %s " (type_str ctx r p);
-			| _ when is_getset ->
-				let t = type_str ctx f.cf_type p in
-				let id = s_ident f.cf_name in
-				(match f.cf_kind with
-				| Var v ->
-					(match v.v_read with
-					| AccNormal -> print ctx "function get %s() : %s;" id t;
-					| AccCall -> print ctx "function %s() : %s;" ("get_" ^ f.cf_name) t;
-					| _ -> ());
-					(match v.v_write with
-					| AccNormal -> print ctx "function set %s( __v : %s ) : void;" id t;
-					| AccCall -> print ctx "function %s( __v : %s ) : %s;" ("set_" ^ f.cf_name) t t;
-					| _ -> ());
-				| _ -> assert false)
 			| _ -> ()
 		else
 		let gen_init () = match f.cf_expr with

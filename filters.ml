@@ -704,6 +704,22 @@ let rename_local_vars com e =
 			old()
 		| TBlock el ->
 			let old = save() in
+			(* we have to look ahead for vars on these targets (issue #3344) *)
+			begin match com.platform with
+				| Js | Flash8 ->
+					let rec check_var e = match e.eexpr with
+						| TVar (v,eo) ->
+							(match eo with None -> () | Some e -> loop e);
+							declare v e.epos
+						| TBlock _ ->
+							()
+						| _ ->
+							Type.iter check_var e
+					in
+					List.iter check_var el
+				| _ ->
+					()
+			end;
 			List.iter loop el;
 			old()
 		| TFor (v,it,e1) ->
@@ -841,6 +857,10 @@ let apply_native_paths ctx t =
 		| _ ->
 			error "String expected" mp
 	in
+	let get_real_name meta name =
+		let name',p = get_native_name meta in
+		(Meta.RealPath,[Ast.EConst (Ast.String (name)), p], p), name'
+	in
 	let get_real_path meta path =
 		let name,p = get_native_name meta in
 		(Meta.RealPath,[Ast.EConst (Ast.String (s_type_path path)), p], p), parse_path name
@@ -850,8 +870,9 @@ let apply_native_paths ctx t =
 		| TClassDecl c ->
 			let did_change = ref false in
 			let field cf = try
-				let name,_ = get_native_name cf.cf_meta in
+				let meta,name = get_real_name cf.cf_meta cf.cf_name in
 				cf.cf_name <- name;
+				cf.cf_meta <- meta :: cf.cf_meta;
 				List.iter (fun cf -> cf.cf_name <- name) cf.cf_overloads;
 				did_change := true
 			with Not_found ->

@@ -2,7 +2,7 @@ package unit;
 import sys.db.Object;
 import sys.db.Types;
 
-class MySpodClass extends Object
+@:keep class MySpodClass extends Object
 {
   public var theId:SId;
   public var int:SInt;
@@ -11,6 +11,7 @@ class MySpodClass extends Object
   public var string:SString<255>;
   public var date:SDateTime;
   public var binary:SBinary;
+	public var abstractType:AbstractSpodTest<String>;
 
   public var nullInt:SNull<Int>;
   public var enumFlags:SFlags<SpodEnum>;
@@ -22,7 +23,16 @@ class MySpodClass extends Object
   public var anEnum:SEnum<SpodEnum>;
 }
 
-class ComplexClass
+@:keep class NullableSpodClass extends Object
+{
+	public var theId:SId;
+  @:relation(rnid) public var relationNullable:Null<OtherSpodClass>;
+  public var data:Null<SData<Array<ComplexClass>>>;
+	public var abstractType:Null<AbstractSpodTest<String>>;
+	public var anEnum:Null<SEnum<SpodEnum>>;
+}
+
+@:keep class ComplexClass
 {
 	public var val : { name:String, array:Array<String> };
 
@@ -32,7 +42,7 @@ class ComplexClass
 	}
 }
 
-class OtherSpodClass extends Object
+@:keep class OtherSpodClass extends Object
 {
 	public var theid:SId;
 	public var name:SString<255>;
@@ -44,9 +54,17 @@ class OtherSpodClass extends Object
 	}
 }
 
-enum SpodEnum
+@:keep enum SpodEnum
 {
 	FirstValue;
 	SecondValue;
 	ThirdValue;
+}
+
+abstract AbstractSpodTest<A>(A) from A
+{
+	public function get():A
+	{
+		return this;
+	}
 }

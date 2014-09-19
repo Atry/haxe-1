@@ -19,8 +19,10 @@ class TestSpod extends Test
 		Manager.cnx = cnx;
 		try cnx.request('DROP TABLE MySpodClass') catch(e:Dynamic) {}
 		try cnx.request('DROP TABLE OtherSpodClass') catch(e:Dynamic) {}
+		try cnx.request('DROP TABLE NullableSpodClass') catch(e:Dynamic) {}
 		TableCreate.create(MySpodClass.manager);
 		TableCreate.create(OtherSpodClass.manager);
+		TableCreate.create(NullableSpodClass.manager);
 	}
 
 	private function setManager()
@@ -38,8 +40,9 @@ class TestSpod extends Test
 		scls.boolean = true;
 		scls.string = "some string";
 		scls.date = new Date(2012, 7, 30, 0, 0, 0);
+		scls.abstractType = "other string";
 
-		var bytes = Bytes.ofString("\x01\n\r\x02");
+		var bytes = Bytes.ofString("\x01\n\r'\x02");
 		scls.binary = bytes;
 		scls.enumFlags = EnumFlags.ofInt(0);
 		scls.enumFlags.set(FirstValue);
@@ -49,6 +52,67 @@ class TestSpod extends Test
 		scls.anEnum = SecondValue;
 
 		return scls;
+	}
+
+	public function testUpdate()
+	{
+		setManager();
+		var c1 = new OtherSpodClass("first spod");
+		c1.insert();
+		var c2 = new OtherSpodClass("second spod");
+		c2.insert();
+		var scls = getDefaultClass();
+		scls.relation = c1;
+		scls.relationNullable = c2;
+		scls.insert();
+
+		var id = scls.theId;
+
+		//if no change made, update should return nothing
+		eq( untyped MySpodClass.manager.getUpdateStatement( scls ), null );
+		Manager.cleanup();
+		scls = MySpodClass.manager.get(id);
+		eq( untyped MySpodClass.manager.getUpdateStatement( scls ), null );
+		scls.delete();
+
+		//try now with null SData and null relation
+		var scls = new NullableSpodClass();
+		scls.insert();
+
+		var id = scls.theId;
+
+		//if no change made, update should return nothing
+		eq( untyped NullableSpodClass.manager.getUpdateStatement( scls ), null );
+		Manager.cleanup();
+		scls = NullableSpodClass.manager.get(id);
+		eq( untyped NullableSpodClass.manager.getUpdateStatement( scls ), null );
+		eq(scls.data,null);
+		eq(scls.relationNullable,null);
+		eq(scls.abstractType,null);
+		eq(scls.anEnum,null);
+		scls.delete();
+
+		//same thing with explicit null set
+		var scls = new NullableSpodClass();
+		scls.data = null;
+		scls.relationNullable = null;
+		scls.abstractType = null;
+		scls.anEnum = null;
+		scls.insert();
+
+		var id = scls.theId;
+
+		//if no change made, update should return nothing
+		eq( untyped NullableSpodClass.manager.getUpdateStatement( scls ), null );
+		Manager.cleanup();
+		scls = NullableSpodClass.manager.get(id);
+		eq( untyped NullableSpodClass.manager.getUpdateStatement( scls ), null );
+		eq(scls.data,null);
+		eq(scls.relationNullable,null);
+		eq(scls.abstractType,null);
+		eq(scls.anEnum,null);
+		scls.delete();
+
 	}
 
 	public function testSpodTypes()
@@ -86,12 +150,14 @@ class TestSpod extends Test
 		eq(cls1.boolean, true,pos());
 		t(Std.is(cls1.string, String),pos());
 		eq(cls1.string, "some string",pos());
+		t(Std.is(cls1.abstractType, String),pos());
+		eq(cls1.abstractType.get(), "other string",pos());
 		t(cls1.date != null,pos());
 		t(Std.is(cls1.date, Date),pos());
 		eq(cls1.date.getTime(), new Date(2012, 7, 30, 0, 0, 0).getTime(),pos());
 
 		t(Std.is(cls1.binary, Bytes),pos());
-		eq(cls1.binary.compare(Bytes.ofString("\x01\n\r\x02")), 0,pos());
+		eq(cls1.binary.compare(Bytes.ofString("\x01\n\r'\x02")), 0,pos());
 		t(cls1.enumFlags.has(FirstValue),pos());
 		f(cls1.enumFlags.has(SecondValue),pos());
 		t(cls1.enumFlags.has(ThirdValue),pos());

@@ -123,6 +123,7 @@ type extern_api = {
 	delayed_macro : int -> (unit -> (unit -> value));
 	use_cache : unit -> bool;
 	format_string : string -> Ast.pos -> Ast.expr;
+	cast_or_unify : Type.t -> texpr -> Ast.pos -> Type.texpr;
 }
 
 type callstack = {
@@ -2137,6 +2138,12 @@ let macro_lib =
 			| VString s -> (try VString (Common.raw_defined_value (ccom()) s) with Not_found -> VNull)
 			| _ -> error();
 		);
+		"get_defines", Fun0 (fun() ->
+			let defines = (ccom()).defines in
+			let h = Hashtbl.create 0 in
+			PMap.iter (fun n v -> Hashtbl.replace h (VString n) (VString v)) defines;
+			enc_hash h
+		);
 		"get_type", Fun1 (fun s ->
 			match s with
 			| VString s ->
@@ -2338,8 +2345,9 @@ let macro_lib =
 			with Exit -> VNull
 		);
 		"unify", Fun2 (fun t1 t2 ->
-			try Type.unify (decode_type t1) (decode_type t2); VBool true
-			with Unify_error _ -> VBool false
+			let e1 = mk (TConst TNull) (decode_type t1) Ast.null_pos in
+			try ignore(((get_ctx()).curapi.cast_or_unify) (decode_type t2) e1 Ast.null_pos); VBool true
+			with Typecore.Error (Typecore.Unify _,_) -> VBool false
 		);
 		"typeof", Fun1 (fun v ->
 			encode_type ((get_ctx()).curapi.type_expr (decode_expr v)).etype
@@ -4002,7 +4010,7 @@ let decode_unop op =
 	| 4, [] -> NegBits
 	| _ -> raise Invalid_expr
 
-let decode_import_mode t = 
+let decode_import_mode t =
 	match decode_enum t with
 	| 0, [] -> INormal
 	| 1, [alias] -> IAsName (dec_string alias)
@@ -4279,8 +4287,8 @@ and encode_tabstract a =
 		"impl", (match a.a_impl with None -> VNull | Some c -> encode_clref c);
 		"binops", enc_array (List.map (fun (op,cf) -> enc_obj [ "op",encode_binop op; "field",encode_cfield cf]) a.a_ops);
 		"unops", enc_array (List.map (fun (op,postfix,cf) -> enc_obj [ "op",encode_unop op; "isPostfix",VBool (match postfix with Postfix -> true | Prefix -> false); "field",encode_cfield cf]) a.a_unops);
-		"from", enc_array (List.map (fun (t,cfo) -> enc_obj [ "t",encode_type t; "field",match cfo with None -> VNull | Some cf -> encode_cfield cf]) a.a_from);
-		"to", enc_array (List.map (fun (t,cfo) -> enc_obj [ "t",encode_type t; "field",match cfo with None -> VNull | Some cf -> encode_cfield cf]) a.a_to);
+		"from", enc_array ((List.map (fun t -> enc_obj [ "t",encode_type t; "field",VNull]) a.a_from) @ (List.map (fun (t,cf) -> enc_obj [ "t",encode_type t; "field",encode_cfield cf]) a.a_from_field));
+		"to", enc_array ((List.map (fun t -> enc_obj [ "t",encode_type t; "field",VNull]) a.a_to) @ (List.map (fun (t,cf) -> enc_obj [ "t",encode_type t; "field",encode_cfield cf]) a.a_to_field));
 		"array", enc_array (List.map encode_cfield a.a_array);
 	]
 
@@ -4736,16 +4744,15 @@ let rec decode_texpr v =
 		| 16, [vif;vthen;velse] -> TIf(loop vif,loop vthen,opt loop velse)
 		| 17, [vcond;v1;b] -> TWhile(loop vcond,loop v1,if dec_bool b then NormalWhile else DoWhile)
 		| 18, [v1;cl;vdef] -> TSwitch(loop v1,List.map (fun v -> List.map loop (dec_array (field v "values")),loop (field v "expr")) (dec_array cl),opt loop vdef)
-		| 19, [dt] -> assert false
-		| 20, [v1;cl] -> TTry(loop v1,List.map (fun v -> decode_tvar (field v "v"),loop (field v "expr")) (dec_array cl))
-		| 21, [vo] -> TReturn(opt loop vo)
-		| 22, [] -> TBreak
-		| 23, [] -> TContinue
-		| 24, [v1] -> TThrow(loop v1)
-		| 25, [v1;mto] -> TCast(loop v1,opt decode_module_type mto)
-		| 26, [m;v1] -> TMeta(decode_meta_entry m,loop v1)
-		| 27, [v1;ef;i] -> TEnumParameter(loop v1,decode_efield ef,match i with VInt i -> i | _ -> raise Invalid_expr)
-		| _ -> raise Invalid_expr
+		| 19, [v1;cl] -> TTry(loop v1,List.map (fun v -> decode_tvar (field v "v"),loop (field v "expr")) (dec_array cl))
+		| 20, [vo] -> TReturn(opt loop vo)
+		| 21, [] -> TBreak
+		| 22, [] -> TContinue
+		| 23, [v1] -> TThrow(loop v1)
+		| 24, [v1;mto] -> TCast(loop v1,opt decode_module_type mto)
+		| 25, [m;v1] -> TMeta(decode_meta_entry m,loop v1)
+		| 26, [v1;ef;i] -> TEnumParameter(loop v1,decode_efield ef,match i with VInt i -> i | _ -> raise Invalid_expr)
+		| i,el -> Printf.printf "%i %i\n" i (List.length el); raise Invalid_expr
 	in
 	try
 		loop v

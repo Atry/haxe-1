@@ -157,7 +157,16 @@ and gen_field att f =
 		| Some ({eexpr = TFunction tf}) -> Some tf
 		| _ -> None
 	in
-	node f.cf_name (if f.cf_public then ("public","1") :: att else att) (gen_type ~tfunc:tfunc f.cf_type :: gen_meta f.cf_meta @ gen_doc_opt f.cf_doc @ overloads)
+	let field_name cf =
+		try
+			begin match Meta.get Meta.RealPath cf.cf_meta with
+				| _,[EConst (String (s)),_],_ -> s
+				| _ -> raise Not_found
+			end;
+		with Not_found ->
+			cf.cf_name
+	in
+	node (field_name f) (if f.cf_public then ("public","1") :: att else att) (gen_type ~tfunc:tfunc f.cf_type :: gen_meta f.cf_meta @ gen_doc_opt f.cf_doc @ overloads)
 
 let gen_constr e =
 	let doc = gen_doc_opt e.ef_doc in
@@ -231,9 +240,10 @@ let rec gen_type_decl com pos t =
 	| TAbstractDecl a ->
 		let doc = gen_doc_opt a.a_doc in
 		let meta = gen_meta a.a_meta in
-		let mk_cast (t,cfo) = node "icast" (match cfo with None -> [] | Some cf -> ["field",cf.cf_name]) [gen_type t] in
-		let sub = (match a.a_from with [] -> [] | l -> [node "from" [] (List.map mk_cast l)]) in
-		let super = (match a.a_to with [] -> [] | l -> [node "to" [] (List.map mk_cast l)]) in
+		let mk_cast t = node "icast" [] [gen_type t] in
+		let mk_field_cast (t,cf) = node "icast" ["field",cf.cf_name] [gen_type t] in
+		let sub = (match a.a_from,a.a_from_field with [],[] -> [] | l1,l2 -> [node "from" [] ((List.map mk_cast l1) @ (List.map mk_field_cast l2))]) in
+		let super = (match a.a_to,a.a_to_field with [],[] -> [] | l1,l2 -> [node "to" [] ((List.map mk_cast l1) @ (List.map mk_field_cast l2))]) in
 		let impl = (match a.a_impl with None -> [] | Some c -> [node "impl" [] [gen_type_decl com pos (TClassDecl c)]]) in
 		let this = [node "this" [] [gen_type a.a_this]] in
 		node "abstract" (gen_type_params pos a.a_private (tpath t) a.a_params a.a_pos m) (sub @ this @ super @ doc @ meta @ impl)

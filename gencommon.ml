@@ -70,13 +70,13 @@ let rec like_float t =
 	match follow t with
 		| TAbstract({ a_path = ([], "Float") },[])
 		| TAbstract({ a_path = ([], "Int") },[]) -> true
-		| TAbstract(a, _) -> List.exists (fun (t,_) -> like_float t) a.a_from || List.exists (fun (t,_) -> like_float t) a.a_to
+		| TAbstract(a, _) -> List.exists (fun t -> like_float t) a.a_from || List.exists (fun t -> like_float t) a.a_to
 		| _ -> false
 
 let rec like_int t =
 	match follow t with
 		| TAbstract({ a_path = ([], "Int") },[]) -> true
-		| TAbstract(a, _) -> List.exists (fun (t,_) -> like_int t) a.a_from || List.exists (fun (t,_) -> like_int t) a.a_to
+		| TAbstract(a, _) -> List.exists (fun t -> like_int t) a.a_from || List.exists (fun t -> like_int t) a.a_to
 		| _ -> false
 
 
@@ -4559,7 +4559,7 @@ struct
 
 				let rec run md =
 					match md with
-						| TClassDecl ({ cl_extern = false; cl_params = [] } as cl) ->
+						| TClassDecl ({ cl_params = [] } as cl) ->
 							(* see if we're implementing any generic interface *)
 							let rec check (iface,tl) =
 								if tl <> [] && set_hxgeneric gen (TClassDecl iface) then
@@ -4569,7 +4569,7 @@ struct
 							in
 							List.iter (check) cl.cl_implements;
 							md
-						| TClassDecl ({ cl_extern = false; cl_params = hd :: tl } as cl) when set_hxgeneric gen md ->
+						| TClassDecl ({ cl_params = hd :: tl } as cl) when set_hxgeneric gen md ->
 							let iface = mk_class cl.cl_module cl.cl_path cl.cl_pos in
 							iface.cl_array_access <- Option.map (apply_params (cl.cl_params) (List.map (fun _ -> t_dynamic) cl.cl_params)) cl.cl_array_access;
 							iface.cl_module <- cl.cl_module;
@@ -10241,7 +10241,7 @@ struct
 				let to_add = ref [] in
 				let fields = List.filter (fun cf ->
 					match cf.cf_kind with
-						| Var vkind ->
+						| Var vkind when not (Type.is_extern_field cf && Meta.has Meta.Property cf.cf_meta) ->
 							(match vkind.v_read with
 								| AccCall ->
 									let newcf = mk_class_field ("get_" ^ cf.cf_name) (TFun([],cf.cf_type)) true cf.cf_pos (Method MethNormal) [] in
@@ -10266,10 +10266,11 @@ struct
 				cl.cl_ordered_fields <- fields;
 
 				List.iter (fun cf ->
-					if not (PMap.mem cf.cf_name cl.cl_fields) then begin
-						cl.cl_ordered_fields <- cf :: cl.cl_ordered_fields;
-						cl.cl_fields <- PMap.add cf.cf_name cf cl.cl_fields
-					end
+					match field_access gen (TInst(cl,List.map snd cl.cl_params)) cf.cf_name with
+						| FNotFound | FDynamicField _ ->
+							cl.cl_ordered_fields <- cf :: cl.cl_ordered_fields;
+							cl.cl_fields <- PMap.add cf.cf_name cf cl.cl_fields
+						| _ -> ()
 				) !to_add;
 
 				md
@@ -10682,7 +10683,7 @@ struct
 							end
 						with | Not_found -> ()
 					in
-					List.iter loop_f iface.cl_ordered_fields
+					List.iter (fun f -> match f.cf_kind with | Var _ -> () | _ -> loop_f f) iface.cl_ordered_fields
 				in
 				List.iter (fun (iface,itl) -> loop_iface iface itl) c.cl_implements;
 				(* now go through all overrides, *)
@@ -10804,6 +10805,8 @@ struct
 	| TType(t,tl) -> TType(t,List.map filter_param tl)
 	| TInst(c,tl) -> TInst(c,List.map filter_param tl)
 	| TEnum(e,tl) -> TEnum(e,List.map filter_param tl)
+	| TAbstract(a,tl) when not (Meta.has Meta.CoreType a.a_meta) ->
+		filter_param (Abstract.get_underlying_type a tl)
 	| TAbstract(a,tl) -> TAbstract(a, List.map filter_param tl)
 	| TAnon a ->
 		TAnon {
@@ -10824,9 +10827,26 @@ struct
 		in
 		run
 
+	let default_implementation_module gen ~metas =
+		let rec run md = match md with
+			| TClassDecl cl ->
+				let rec map cf =
+					cf.cf_type <- filter_param cf.cf_type;
+					List.iter map cf.cf_overloads
+				in
+				List.iter map cl.cl_ordered_fields;
+				List.iter map cl.cl_ordered_statics;
+				Option.may map cl.cl_constructor;
+				md
+			| _ -> md
+		in
+		run
+
 	let configure gen ~metas =
 		let map e = Some(default_implementation gen e ~metas:metas) in
-		gen.gexpr_filters#add ~name:name ~priority:(PCustom priority) map
+		gen.gexpr_filters#add ~name:name ~priority:(PCustom priority) map;
+		let map md = Some(default_implementation_module gen ~metas md) in
+		gen.gmodule_filters#add ~name:name ~priority:(PCustom priority) map
 
 end;;
 
